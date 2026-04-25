@@ -161,6 +161,10 @@ type Store struct {
 	mu      sync.Mutex
 	path    string
 	samples []Sample
+	// alerted tracks the last time MIK-3085 sent a mistake-fare alert
+	// for a given (route, kind) tuple. Used by MaybeAlertMistakeFare's
+	// 24h decay rule. Persisted alongside samples in deal-history.json.
+	alerted map[string]time.Time
 }
 
 // NewStore constructs a Store rooted at the given file path. If the
@@ -194,12 +198,14 @@ func (s *Store) load() error {
 		return nil
 	}
 	var wrapper struct {
-		Samples []Sample `json:"samples"`
+		Samples []Sample             `json:"samples"`
+		Alerted map[string]time.Time `json:"mistake_alerts,omitempty"`
 	}
 	if err := json.Unmarshal(data, &wrapper); err != nil {
 		return fmt.Errorf("dealquality: parse %s: %w", s.path, err)
 	}
 	s.samples = wrapper.Samples
+	s.alerted = wrapper.Alerted
 	return nil
 }
 
@@ -216,8 +222,9 @@ func (s *Store) saveLocked() error {
 	}
 	tmp := s.path + ".tmp"
 	wrapper := struct {
-		Samples []Sample `json:"samples"`
-	}{Samples: s.samples}
+		Samples []Sample             `json:"samples"`
+		Alerted map[string]time.Time `json:"mistake_alerts,omitempty"`
+	}{Samples: s.samples, Alerted: s.alerted}
 	data, err := json.MarshalIndent(wrapper, "", "  ")
 	if err != nil {
 		return fmt.Errorf("dealquality: marshal: %w", err)
