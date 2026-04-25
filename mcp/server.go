@@ -138,17 +138,34 @@ func NewServer() *Server {
 	return s
 }
 
+// maxTripStateSearches caps tripState.Searches to bound memory growth on long
+// sessions. Older entries are dropped FIFO when the cap is hit. Per audit
+// MIK-3073: append-only without bound is a slow leak.
+const maxTripStateSearches = 1000
+
 // recordSearch adds a search record to the session trip state.
+//
+// The Searches slice is capped at maxTripStateSearches entries; the oldest
+// records are evicted FIFO once the cap is reached. The eviction reuses the
+// underlying array storage to avoid repeated allocations.
 func (s *Server) recordSearch(typ, query string, bestPrice float64, currency string) {
 	s.tripState.mu.Lock()
 	defer s.tripState.mu.Unlock()
-	s.tripState.Searches = append(s.tripState.Searches, SearchRecord{
+	rec := SearchRecord{
 		Type:      typ,
 		Query:     query,
 		BestPrice: bestPrice,
 		Currency:  currency,
 		Time:      time.Now(),
-	})
+	}
+	if len(s.tripState.Searches) >= maxTripStateSearches {
+		// Drop the oldest entry by shifting in place. copy is faster than
+		// re-slicing + reallocating for the steady-state cap behaviour.
+		copy(s.tripState.Searches, s.tripState.Searches[1:])
+		s.tripState.Searches[len(s.tripState.Searches)-1] = rec
+		return
+	}
+	s.tripState.Searches = append(s.tripState.Searches, rec)
 }
 
 // SendNotification writes a JSON-RPC notification to the client (server->client).
