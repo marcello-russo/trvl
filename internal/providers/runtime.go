@@ -20,10 +20,12 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/MikkoParkkola/trvl/internal/models"
@@ -81,7 +83,36 @@ const (
 	// round-trip ≤ 8s + WAF JS solver ≤ 5s = 28s worst case. 30s gives
 	// 2s margin without exceeding the MCP client's typical 60s call budget.
 	perProviderTimeout = 30 * time.Second
+
+	// defaultProviderConcurrency caps how many provider searches run
+	// in parallel within a single SearchHotels call (MIK-3072). Without
+	// this bound, a registry with 10+ providers fans out 10+ goroutines
+	// each holding an HTTP connection, browser cookie lock, and WAF
+	// solver state — peak ~40 goroutines, ~10 concurrent TCP/TLS dials.
+	//
+	// Why 8: empirically lets 5 typical providers (Booking, Airbnb,
+	// Hostelworld, Trivago, Google Hotels) run fully in parallel while
+	// throttling the long tail; matches mcp/server.go maxConcurrentTools=4
+	// at the outer layer (so worst case is 4 × 8 = 32 in-flight provider
+	// goroutines across simultaneous MCP tool calls).
+	defaultProviderConcurrency = 8
+
+	// providerConcurrencyEnv overrides defaultProviderConcurrency at
+	// runtime. Useful for benchmarks and constrained CI. Values <= 0
+	// or non-numeric fall back to the default.
+	providerConcurrencyEnv = "TRVL_PROVIDER_CONCURRENCY"
 )
+
+// providerConcurrency returns the active concurrency cap, honouring the
+// TRVL_PROVIDER_CONCURRENCY environment variable when present.
+func providerConcurrency() int {
+	if v := os.Getenv(providerConcurrencyEnv); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultProviderConcurrency
+}
 
 // HotelFilterParams carries search filter values that should be passed through
 // to external provider URL templates and query parameters via ${var} substitution.
@@ -113,6 +144,16 @@ type Runtime struct {
 	registry *Registry
 	clients  map[string]*providerClient
 	mu       sync.RWMutex
+	// inflight is the live count of provider goroutines actively running
+	// a search (post-semaphore-acquire, pre-result-emit). Surfaced as the
+	// "provider_concurrent_inflight" slog gauge for MIK-3072.
+	inflight atomic.Int64
+}
+
+// InflightProviders returns the current number of provider goroutines
+// actively executing a search. Exposed for tests and observability.
+func (rt *Runtime) InflightProviders() int64 {
+	return rt.inflight.Load()
 }
 
 // providerClient holds per-provider HTTP state.
@@ -262,13 +303,11 @@ func (rt *Runtime) SearchHotels(ctx context.Context, location string, lat, lon f
 		latencyMs int64
 	}
 
-	results := make(chan result, len(providers))
-	var wg sync.WaitGroup
-
+	// Filter out circuit-broken providers up-front so the worker pool
+	// only enqueues work that will actually run. Skipped providers do
+	// not appear in statuses (existing behavior preserved).
+	live := make([]*ProviderConfig, 0, len(providers))
 	for _, cfg := range providers {
-		// Circuit breaker: skip providers that have failed repeatedly
-		// without any recent success. Prevents wasting 15-30s on preflight
-		// + WAF recovery for providers that are consistently down.
 		if cfg.ErrorCount >= circuitBreakerThreshold && !cfg.LastSuccess.IsZero() &&
 			time.Since(cfg.LastSuccess) > circuitBreakerCooldown {
 			slog.Info("circuit breaker: skipping provider",
@@ -277,18 +316,56 @@ func (rt *Runtime) SearchHotels(ctx context.Context, location string, lat, lon f
 				"last_success", cfg.LastSuccess.Format(time.RFC3339))
 			continue
 		}
+		live = append(live, cfg)
+	}
+
+	results := make(chan result, len(live))
+
+	// MIK-3072: worker-pool dispatch. Bounds peak goroutines to
+	// min(providerConcurrency, len(live)) instead of fanning out one
+	// goroutine per provider. Workers consume from `work` until ctx
+	// cancellation or channel close. The inflight gauge tracks how many
+	// workers are currently inside searchProvider (excludes blocked-on-
+	// channel-recv idle time).
+	workers := providerConcurrency()
+	if workers > len(live) {
+		workers = len(live)
+	}
+	work := make(chan *ProviderConfig)
+	var wg sync.WaitGroup
+
+	// Dispatcher: feeds work; respects ctx cancellation.
+	go func() {
+		defer close(work)
+		for _, cfg := range live {
+			select {
+			case work <- cfg:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go func(cfg *ProviderConfig) {
+		go func() {
 			defer wg.Done()
-			// Per-provider timeout: prevent any single provider from holding
-			// up the entire search. Covers the full preflight → auth → search
-			// → parse cascade including browser cookie reads and WAF solving.
-			provCtx, provCancel := context.WithTimeout(ctx, perProviderTimeout)
-			defer provCancel()
-			t0 := time.Now()
-			hotels, err := rt.searchProvider(provCtx, cfg, location, lat, lon, checkin, checkout, currency, guests, filters)
-			results <- result{hotels: hotels, err: err, id: cfg.ID, name: cfg.Name, latencyMs: time.Since(t0).Milliseconds()}
-		}(cfg)
+			for cfg := range work {
+				cur := rt.inflight.Add(1)
+				slog.Debug("provider_concurrent_inflight",
+					"count", cur,
+					"cap", workers,
+					"provider", cfg.ID)
+				// Per-provider timeout: prevent any single provider from
+				// holding up the entire search.
+				provCtx, provCancel := context.WithTimeout(ctx, perProviderTimeout)
+				t0 := time.Now()
+				hotels, err := rt.searchProvider(provCtx, cfg, location, lat, lon, checkin, checkout, currency, guests, filters)
+				provCancel()
+				rt.inflight.Add(-1)
+				results <- result{hotels: hotels, err: err, id: cfg.ID, name: cfg.Name, latencyMs: time.Since(t0).Milliseconds()}
+			}
+		}()
 	}
 
 	go func() {
