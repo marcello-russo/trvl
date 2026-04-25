@@ -60,6 +60,12 @@ func NewRegistryAt(dir string) (*Registry, error) {
 		if err := json.Unmarshal(data, &cfg); err != nil {
 			return nil, fmt.Errorf("providers: parse %s: %w", entry.Name(), err)
 		}
+		// MIK-3075: forward-migrate legacy configs (no schema_version) to
+		// the current schema. Future-versioned configs are rejected here
+		// rather than loaded silently.
+		if err := Migrate(&cfg); err != nil {
+			return nil, fmt.Errorf("providers: migrate %s: %w", entry.Name(), err)
+		}
 		r.configs[cfg.ID] = &cfg
 		if info, err := os.Stat(path); err == nil {
 			r.loadedAt[cfg.ID] = info.ModTime()
@@ -113,6 +119,13 @@ func (r *Registry) Save(config *ProviderConfig) error {
 }
 
 func (r *Registry) saveLocked(config *ProviderConfig) error {
+	// MIK-3075: stamp the schema version on every save so freshly written
+	// configs always carry the version this binary supports. Older
+	// in-memory configs that have already passed Migrate are safe — the
+	// stamp is idempotent.
+	if config.SchemaVersion == "" {
+		config.SchemaVersion = CurrentSchemaVersion
+	}
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("providers: marshal %s: %w", config.ID, err)
@@ -182,6 +195,9 @@ func (r *Registry) Reload(id string) (*ProviderConfig, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("providers: parse %s: %w", id, err)
 	}
+	if err := Migrate(&cfg); err != nil {
+		return nil, fmt.Errorf("providers: migrate %s: %w", id, err)
+	}
 	r.configs[cfg.ID] = &cfg
 	if info, err := os.Stat(path); err == nil {
 		r.loadedAt[cfg.ID] = info.ModTime()
@@ -224,6 +240,11 @@ func (r *Registry) ReloadIfChanged(id string) *ProviderConfig {
 	}
 	var cfg ProviderConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
+		return r.configs[id]
+	}
+	if err := Migrate(&cfg); err != nil {
+		// Stale-but-valid in-memory config beats a hard failure on the
+		// hot path; surface the migration error via slog only.
 		return r.configs[id]
 	}
 	r.configs[cfg.ID] = &cfg

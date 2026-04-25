@@ -12,6 +12,12 @@ import (
 
 // ProviderConfig is the main configuration for a single external provider.
 type ProviderConfig struct {
+	// SchemaVersion is the semver version of the provider-config schema this
+	// document was authored against (MIK-3075). Older configs without this
+	// field are treated as the v0 baseline and migrated forward at load time.
+	// Configs declaring a version newer than CurrentSchemaVersion are
+	// rejected with a clear error rather than loaded silently.
+	SchemaVersion   string            `json:"schema_version,omitempty"`
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
 	Category        string            `json:"category"` // "hotel", "transport", "restaurant", ...
