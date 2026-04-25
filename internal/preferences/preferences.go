@@ -47,6 +47,12 @@ type Preferences struct {
 	FrequentFlyerPrograms []FrequentFlyerStatus `json:"frequent_flyer_programs,omitempty"` // alliance status tiers
 	LoungeCards           []string              `json:"lounge_cards,omitempty"`            // e.g. ["Priority Pass", "Diners Club"]
 
+	// MIK-3083: payment cards held by the user, used by the
+	// internal/cards package to rank net cost after rewards on every
+	// priced result. Free-form list — the card-ranking package never
+	// inspects card numbers, just the per-MCC multipliers and FX fees.
+	PaymentCards []PaymentCard `json:"payment_cards,omitempty"`
+
 	// Travel style (extended)
 	DefaultCompanions int      `json:"default_companions"`          // 0 = solo, 1 = couple, 2+ = family/group
 	TripTypes         []string `json:"trip_types,omitempty"`        // "city_break", "beach", "adventure", "business", "remote_work"
@@ -130,6 +136,18 @@ type FrequentFlyerStatus struct {
 	AirlineCode  string `json:"airline_code,omitempty"`  // optional specific IATA carrier code
 	MilesBalance int    `json:"miles_balance,omitempty"` // current miles/points balance
 	ProgramName  string `json:"program_name,omitempty"`  // e.g. "Flying Blue", "Royal Plus"
+}
+
+// PaymentCard captures the per-card metadata internal/cards needs to
+// rank net cost after rewards on a booking (MIK-3083). Field-for-field
+// compatible with cards.Card to keep wiring trivial — no card numbers
+// or PII are stored here, only multipliers and fee descriptors.
+type PaymentCard struct {
+	Name           string             `json:"name"`
+	MCCMultipliers map[string]float64 `json:"mcc_multipliers,omitempty"`
+	PointValueEUR  float64            `json:"point_value_eur,omitempty"`
+	IntroOffer     string             `json:"intro_offer,omitempty"`
+	FXFeePct       float64            `json:"fx_fee_pct,omitempty"`
 }
 
 // defaultPath returns the canonical preferences file path (~/.trvl/preferences.json).
