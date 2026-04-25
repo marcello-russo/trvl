@@ -636,10 +636,17 @@ func RecordWinningOrigin(iata string) error {
 // Mikko's two-base lifestyle (Amsterdam + Helsinki). Keys are home-airport
 // IATA codes; values are airports close enough to justify searching.
 //
+// Rail+fly entries: BRU (Brussels Airport), ANR (Antwerp), ZYR (Brussels
+// Midi rail+fly station) are reachable from AMS via the Thalys / direct
+// rail link with KLM and Air France through-tickets, often saving EUR
+// 50-100 vs an AMS-only search (MIK-3079). Adding them here makes them
+// participate in --home-fan from day one rather than waiting for the
+// affinity side-effect in RecordWinningOrigin to register them.
+//
 // Source: travel_search_mental_model.md — MULTI-AIRPORT ORIGIN SPREAD section.
 func defaultNearbyAirports() map[string][]string {
 	return map[string][]string{
-		"AMS": {"EIN"},
+		"AMS": {"EIN", "BRU", "ANR", "ZYR"},
 		"HEL": {"TKU", "TMP", "TLL", "ARN"},
 	}
 }
