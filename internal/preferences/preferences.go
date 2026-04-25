@@ -53,6 +53,12 @@ type Preferences struct {
 	// inspects card numbers, just the per-MCC multipliers and FX fees.
 	PaymentCards []PaymentCard `json:"payment_cards,omitempty"`
 
+	// MIK-3082: per-program loyalty balance + status snapshot consumed
+	// by internal/loyalty to forecast points expiry and status renewal
+	// deadlines. Free-form — the loyalty package never inspects program
+	// internals beyond the public field set.
+	LoyaltyBalances []LoyaltyBalance `json:"loyalty_balances,omitempty"`
+
 	// Travel style (extended)
 	DefaultCompanions int      `json:"default_companions"`          // 0 = solo, 1 = couple, 2+ = family/group
 	TripTypes         []string `json:"trip_types,omitempty"`        // "city_break", "beach", "adventure", "business", "remote_work"
@@ -148,6 +154,20 @@ type PaymentCard struct {
 	PointValueEUR  float64            `json:"point_value_eur,omitempty"`
 	IntroOffer     string             `json:"intro_offer,omitempty"`
 	FXFeePct       float64            `json:"fx_fee_pct,omitempty"`
+}
+
+// LoyaltyBalance mirrors loyalty.Balance for direct round-trip through
+// the preferences file. Loaded by internal/loyalty.Warnings to
+// forecast 60-day-ahead points expiry and status-renewal deadlines
+// (MIK-3082). The preferences package does not import internal/loyalty
+// to keep the dependency flow unidirectional.
+type LoyaltyBalance struct {
+	Program               string `json:"program"`
+	Balance               int    `json:"balance,omitempty"`
+	ExpiresAt             string `json:"expires_at,omitempty"` // ISO 8601 calendar date
+	StatusTier            string `json:"status_tier,omitempty"`
+	StatusRenewalDeadline string `json:"status_renewal_deadline,omitempty"` // ISO 8601 calendar date
+	QualSegmentsNeeded    int    `json:"qual_segments_needed,omitempty"`
 }
 
 // defaultPath returns the canonical preferences file path (~/.trvl/preferences.json).
