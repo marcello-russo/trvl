@@ -308,19 +308,22 @@ func (rt *Runtime) SearchHotels(ctx context.Context, location string, lat, lon f
 			if isTimeoutError(r.err) {
 				status = "timeout"
 			}
+			code, hint := classifyProviderError(r.err)
 			LogHealth(HealthEntry{
 				Provider:  r.id,
 				Operation: "search",
 				Status:    status,
 				LatencyMs: r.latencyMs,
 				Error:     errMsg,
+				HintCode:  string(code),
 			})
 			statuses = append(statuses, models.ProviderStatus{
-				ID:      r.id,
-				Name:    r.name,
-				Status:  "error",
-				Error:   errMsg,
-				FixHint: providerFixHint(r.err),
+				ID:          r.id,
+				Name:        r.name,
+				Status:      "error",
+				Error:       errMsg,
+				FixHint:     hint,
+				FixHintCode: string(code),
 			})
 			if firstErr == nil {
 				firstErr = r.err
@@ -361,21 +364,22 @@ func isTimeoutError(err error) bool {
 		strings.Contains(msg, "timeout")
 }
 
-// providerFixHint generates an actionable LLM-readable hint for common failures.
+// providerFixHint returns an actionable LLM-readable hint for common
+// provider failures. Thin compatibility wrapper around the typed
+// classifier introduced in MIK-3074: callers that need both the code
+// and the message should call classifyProviderError directly.
+//
+// Kept exported-by-name within the package because several call sites
+// historically returned only the human-readable string. The underlying
+// classification logic now lives in fixhint.go and is tested in
+// fixhint_test.go; that single source of truth replaces the prior
+// inline switch over msg substrings (preflight / results_path / 403 /
+// 202 / rate-limit). Behavior is a strict superset: every prior bucket
+// still resolves to a non-empty hint, plus DNS / TLS / cookie / 429 /
+// shape are now distinguished and surface their own remediation text.
 func providerFixHint(err error) string {
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "preflight"):
-		return "Call test_provider with this provider's id to diagnose. WAF/auth may need refresh."
-	case strings.Contains(msg, "results_path"):
-		return "API response structure changed. Call test_provider to see current response shape, then configure_provider to update results_path."
-	case strings.Contains(msg, "http 403"), strings.Contains(msg, "http 202"):
-		return "WAF block detected. Try test_provider — if it fails, the provider may need browser cookie refresh."
-	case strings.Contains(msg, "rate limit"):
-		return "Rate limited. Wait and retry, or reduce request frequency in provider config."
-	default:
-		return "Call test_provider with this provider's id to diagnose the issue."
-	}
+	_, hint := classifyProviderError(err)
+	return hint
 }
 
 func (rt *Runtime) searchProvider(ctx context.Context, cfg *ProviderConfig, location string, lat, lon float64, checkin, checkout, currency string, guests int, filters *HotelFilterParams) ([]models.HotelResult, error) {
