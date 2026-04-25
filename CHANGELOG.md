@@ -7,9 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Match scoring foundations** for the upcoming opportunity-watcher (MIK-3065):
+  - `internal/match` — `RequestMatch` 0..100 fidelity score (date drift, airport substitution, nights drift, currency, guest count); wired into `DiscoverResult` (MIK-3063)
+  - `internal/calendar` — `FreeWindows` detector built on top of `calendarbusy`, with travel-title heuristic that excludes existing trip blocks (MIK-3066)
+  - `internal/dealquality` — per-route × per-season percentile-based `DealQuality` 0..100 score with sparse-history floor + 90-day rolling prune (MIK-3064); plus `MistakeFare` detector with 24h alert decay window (MIK-3085)
+  - `internal/cards` — multi-card reward ranker; `Preferences.PaymentCards` schema (MIK-3083)
+  - `internal/loyalty` — points-expiry + status-renewal warnings tracker (60-day pre-deadline); `Preferences.LoyaltyBalances` schema (MIK-3082)
+  - `internal/hacks.DetectHomeStopover` — flags 12-48h layovers at home airports / publisher-free-stopover hubs (MIK-3077)
+- **AMS rail+fly origins seeded by default** — BRU/ANR/ZYR appear in `defaultNearbyAirports()["AMS"]` so `--home-fan` searches include them on day one (MIK-3079, partial)
+
 ### Fixed
+- **Auth-cache race on city-switch** — `runPreflight` returns an immutable snapshot bound to the preflighted URL (MIK-3070)
+- **`tripState.Searches` unbounded growth** — capped at 1000 with FIFO eviction (MIK-3073)
 - **MCP flight search**: plumb `Currency` through `FlightSearchOptions` and include `returnDate` + `currency` in booking deep links, so prices and booking URLs stay consistent for MCP clients (#34, thanks @Alorse — first external contributor!)
 - **Race conditions in `mcp` handlers under `-race`**: singleflight-coalesced callers each receive their own `*HotelSearchResult` / `*FlightSearchResult` header with independent slice headers, so post-filter mutations no longer race with sibling JSON marshaling (#39 hotels, #40 flights)
+
+### Changed
+- **Provider error classification** — typed `FixHintCode` enum surfaced via `models.ProviderStatus.FixHintCode` and aggregated into `ProviderHealth.LastHintCode` (MIK-3074)
+- **Hotel-search fan-out** — bounded worker pool with `defaultProviderConcurrency = 8` (overridable via `TRVL_PROVIDER_CONCURRENCY`); `provider_concurrent_inflight` slog gauge (MIK-3072)
+- **HTTP 429 + Retry-After** parsed and retried up to 2× per provider, with adaptive per-provider rate-limit halving after 3 consecutive 429s and 1h cooldown auto-restore (MIK-3071)
+- **Provider config schema versioning** — new `schema_version` field, forward-migration chain, future versions rejected with explicit upgrade message (MIK-3075)
 
 ### Notes
 - Windows CI runners hit external-provider rate limits (Kiwi, Nominatim) on slower hardware; tracked in #41 as a separate hardening item. Ubuntu CI is the source of truth for test correctness until that lands.
