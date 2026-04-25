@@ -18,6 +18,7 @@ import (
 
 	"github.com/MikkoParkkola/trvl/internal/cache"
 	"github.com/MikkoParkkola/trvl/internal/models"
+	"github.com/MikkoParkkola/trvl/internal/searchctx"
 	"golang.org/x/sync/singleflight"
 	"golang.org/x/time/rate"
 )
@@ -30,6 +31,8 @@ var groundCache = cache.New()
 
 // groundCacheTTL is the TTL for cached ground transport results.
 const groundCacheTTL = 10 * time.Minute
+
+const sharedGroundSearchTimeout = 30 * time.Second
 
 // httpClient is a shared HTTP client with sensible timeouts for FlixBus/RegioJet.
 var httpClient = &http.Client{
@@ -111,13 +114,78 @@ func SearchByName(ctx context.Context, from, to, date string, opts SearchOptions
 	// Deduplicate concurrent identical in-flight searches. The cache check above
 	// already handles TTL-based reuse; singleflight only coalesces truly concurrent
 	// requests that both missed the cache.
-	v, err, _ := groundGroup.Do(cacheKey, func() (any, error) {
-		return searchByNameCore(ctx, from, to, date, opts, cacheKey, allowBrowserFallbacks)
+	return doGroundSearchSingleflight(ctx, cacheKey, func(sharedCtx context.Context) (*models.GroundSearchResult, error) {
+		return searchByNameCore(sharedCtx, from, to, date, opts, cacheKey, allowBrowserFallbacks)
 	})
-	if err != nil {
+}
+
+func doGroundSearchSingleflight(ctx context.Context, key string, fn func(context.Context) (*models.GroundSearchResult, error)) (*models.GroundSearchResult, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return v.(*models.GroundSearchResult), nil
+
+	ch := groundGroup.DoChan(key, func() (any, error) {
+		sharedCtx, cancel := searchctx.DetachedWithin(ctx, sharedGroundSearchTimeout)
+		defer cancel()
+		return fn(sharedCtx)
+	})
+
+	select {
+	case <-ctx.Done():
+		// Forget timed-out work eagerly so the next caller can launch a fresh
+		// execution instead of inheriting the prior caller's deadline-bound run.
+		groundGroup.Forget(key)
+		return nil, ctx.Err()
+	case res := <-ch:
+		return sharedGroundResult(res.Val, res.Err)
+	}
+}
+
+func sharedGroundResult(v any, err error) (*models.GroundSearchResult, error) {
+	if err != nil {
+		if r, ok := v.(*models.GroundSearchResult); ok {
+			return cloneGroundSearchResult(r), err
+		}
+		return nil, err
+	}
+	return cloneGroundSearchResult(v.(*models.GroundSearchResult)), nil
+}
+
+func cloneGroundSearchResult(shared *models.GroundSearchResult) *models.GroundSearchResult {
+	if shared == nil {
+		return nil
+	}
+
+	// singleflight.Do shares the winner's *GroundSearchResult pointer across
+	// concurrent callers. MCP handlers can post-filter Routes and rewrite Count,
+	// so each caller needs a private copy of the result header and nested mutable
+	// slices/pointers to avoid racing on shared state.
+	cp := *shared
+	if shared.Routes != nil {
+		cp.Routes = make([]models.GroundRoute, len(shared.Routes))
+		for i, route := range shared.Routes {
+			routeCopy := route
+			if route.Amenities != nil {
+				routeCopy.Amenities = append([]string(nil), route.Amenities...)
+			}
+			if route.Legs != nil {
+				routeCopy.Legs = make([]models.GroundLeg, len(route.Legs))
+				for j, leg := range route.Legs {
+					legCopy := leg
+					if leg.Amenities != nil {
+						legCopy.Amenities = append([]string(nil), leg.Amenities...)
+					}
+					routeCopy.Legs[j] = legCopy
+				}
+			}
+			if route.SeatsLeft != nil {
+				seatsLeft := *route.SeatsLeft
+				routeCopy.SeatsLeft = &seatsLeft
+			}
+			cp.Routes[i] = routeCopy
+		}
+	}
+	return &cp
 }
 
 // searchByNameCore performs the actual ground search without singleflight wrapping.

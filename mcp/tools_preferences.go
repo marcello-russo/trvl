@@ -4,9 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
 
 	"github.com/MikkoParkkola/trvl/internal/preferences"
 )
+
+var preferenceUpdateLocks sync.Map
 
 // getPreferencesTool returns the MCP tool definition for get_preferences.
 func getPreferencesTool() ToolDef {
@@ -22,38 +27,38 @@ func getPreferencesTool() ToolDef {
 		OutputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"home_airports":       schemaStringArray(),
-				"home_cities":         schemaStringArray(),
-				"carry_on_only":       schemaBool(),
-				"prefer_direct":       schemaBool(),
-				"no_dormitories":      schemaBool(),
-				"ensuite_only":        schemaBool(),
-				"fast_wifi_needed":    schemaBool(),
-				"min_hotel_stars":     schemaInt(),
-				"min_hotel_rating":    schemaNum(),
-				"display_currency":    schemaString(),
-				"locale":              schemaString(),
-				"loyalty_airlines":    schemaStringArray(),
-				"loyalty_hotels":      schemaStringArray(),
-				"lounge_cards":        schemaStringArray(),
-				"preferred_districts": schemaObject(),
-				"default_companions":     schemaInt(),
-				"trip_types":             schemaStringArray(),
-				"seat_preference":        schemaString(),
-				"budget_per_night_min":   schemaNum(),
-				"budget_per_night_max":   schemaNum(),
-				"budget_flight_max":      schemaNum(),
-				"deal_tolerance":         schemaString(),
-				"flight_time_earliest":   schemaString(),
-				"flight_time_latest":     schemaString(),
-				"red_eye_ok":             schemaBool(),
-				"nationality":            schemaString(),
-				"languages":              schemaStringArray(),
-				"previous_trips":         schemaStringArray(),
-				"bucket_list":            schemaStringArray(),
-				"activity_preferences":   schemaStringArray(),
-				"dietary_needs":          schemaStringArray(),
-				"notes":                  schemaString(),
+				"home_airports":        schemaStringArray(),
+				"home_cities":          schemaStringArray(),
+				"carry_on_only":        schemaBool(),
+				"prefer_direct":        schemaBool(),
+				"no_dormitories":       schemaBool(),
+				"ensuite_only":         schemaBool(),
+				"fast_wifi_needed":     schemaBool(),
+				"min_hotel_stars":      schemaInt(),
+				"min_hotel_rating":     schemaNum(),
+				"display_currency":     schemaString(),
+				"locale":               schemaString(),
+				"loyalty_airlines":     schemaStringArray(),
+				"loyalty_hotels":       schemaStringArray(),
+				"lounge_cards":         schemaStringArray(),
+				"preferred_districts":  schemaObject(),
+				"default_companions":   schemaInt(),
+				"trip_types":           schemaStringArray(),
+				"seat_preference":      schemaString(),
+				"budget_per_night_min": schemaNum(),
+				"budget_per_night_max": schemaNum(),
+				"budget_flight_max":    schemaNum(),
+				"deal_tolerance":       schemaString(),
+				"flight_time_earliest": schemaString(),
+				"flight_time_latest":   schemaString(),
+				"red_eye_ok":           schemaBool(),
+				"nationality":          schemaString(),
+				"languages":            schemaStringArray(),
+				"previous_trips":       schemaStringArray(),
+				"bucket_list":          schemaStringArray(),
+				"activity_preferences": schemaStringArray(),
+				"dietary_needs":        schemaStringArray(),
+				"notes":                schemaString(),
 				"family_members": schemaArray(map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -195,71 +200,71 @@ You MUST confirm with the user before calling this tool. Never update silently.`
 				"min_hotel_stars":     {Type: "integer", Description: "Minimum hotel star rating (0-5). 0 means no minimum."},
 				"min_hotel_rating":    {Type: "number", Description: "Minimum hotel review score (e.g. 4.0). 0 means no minimum."},
 				"display_currency":    {Type: "string", Description: "ISO 4217 currency code for display, e.g. \"EUR\"."},
-				"locale":             {Type: "string", Description: "BCP 47 locale tag, e.g. \"en-FI\"."},
+				"locale":              {Type: "string", Description: "BCP 47 locale tag, e.g. \"en-FI\"."},
 				"loyalty_airlines":    {Type: "string", Description: "JSON array of airline IATA codes, e.g. [\"KL\",\"AY\"]. Replaces existing list."},
 				"loyalty_hotels":      {Type: "string", Description: "JSON array of hotel programme names, e.g. [\"Marriott Bonvoy\"]. Replaces existing list."},
 				"lounge_cards":        {Type: "string", Description: "JSON array of lounge access card names, e.g. [\"Priority Pass\",\"Diners Club\"]. Replaces existing list."},
 				"preferred_districts": {Type: "string", Description: "JSON object mapping city names to district arrays, e.g. {\"Prague\":[\"Prague 1\",\"Prague 2\"]}. Merged with existing districts (new cities added, existing cities replaced)."},
 				"family_members":      {Type: "string", Description: "JSON array of family member objects with name, relationship, and notes fields. Replaces entire family list."},
 				// Travel style (extended)
-				"default_companions":    {Type: "integer", Description: "Default number of companions. 0 = solo, 1 = couple, 2+ = family/group."},
-				"trip_types":            {Type: "string", Description: "JSON array of trip types, e.g. [\"city_break\",\"beach\",\"adventure\"]. Replaces existing list."},
-				"seat_preference":       {Type: "string", Description: "Preferred seat: \"window\", \"aisle\", or \"no_preference\"."},
+				"default_companions": {Type: "integer", Description: "Default number of companions. 0 = solo, 1 = couple, 2+ = family/group."},
+				"trip_types":         {Type: "string", Description: "JSON array of trip types, e.g. [\"city_break\",\"beach\",\"adventure\"]. Replaces existing list."},
+				"seat_preference":    {Type: "string", Description: "Preferred seat: \"window\", \"aisle\", or \"no_preference\"."},
 				// Budget
-				"budget_per_night_min":  {Type: "number", Description: "Minimum acceptable hotel price per night (filters too-cheap-to-trust)."},
-				"budget_per_night_max":  {Type: "number", Description: "Maximum hotel price per night."},
-				"budget_flight_max":     {Type: "number", Description: "Maximum one-way flight price."},
-				"deal_tolerance":        {Type: "string", Description: "Price sensitivity: \"price\" (6am flight to save money), \"comfort\" (pay for convenience), or \"balanced\"."},
+				"budget_per_night_min": {Type: "number", Description: "Minimum acceptable hotel price per night (filters too-cheap-to-trust)."},
+				"budget_per_night_max": {Type: "number", Description: "Maximum hotel price per night."},
+				"budget_flight_max":    {Type: "number", Description: "Maximum one-way flight price."},
+				"deal_tolerance":       {Type: "string", Description: "Price sensitivity: \"price\" (6am flight to save money), \"comfort\" (pay for convenience), or \"balanced\"."},
 				// Flight preferences
-				"flight_time_earliest":  {Type: "string", Description: "Earliest acceptable flight departure time, e.g. \"06:00\"."},
-				"flight_time_latest":    {Type: "string", Description: "Latest acceptable flight departure time, e.g. \"23:00\"."},
-				"red_eye_ok":            {Type: "boolean", Description: "True if overnight (red-eye) flights are acceptable."},
+				"flight_time_earliest": {Type: "string", Description: "Earliest acceptable flight departure time, e.g. \"06:00\"."},
+				"flight_time_latest":   {Type: "string", Description: "Latest acceptable flight departure time, e.g. \"23:00\"."},
+				"red_eye_ok":           {Type: "boolean", Description: "True if overnight (red-eye) flights are acceptable."},
 				// Identity
-				"nationality":           {Type: "string", Description: "ISO 3166-1 alpha-2 country code, e.g. \"FI\". Used for visa warnings."},
-				"languages":             {Type: "string", Description: "JSON array of spoken language codes, e.g. [\"en\",\"fi\",\"sv\"]. Replaces existing list."},
+				"nationality": {Type: "string", Description: "ISO 3166-1 alpha-2 country code, e.g. \"FI\". Used for visa warnings."},
+				"languages":   {Type: "string", Description: "JSON array of spoken language codes, e.g. [\"en\",\"fi\",\"sv\"]. Replaces existing list."},
 				// Context (personalization)
-				"previous_trips":        {Type: "string", Description: "JSON array of cities/countries visited, e.g. [\"Japan\",\"Barcelona\"]. Replaces existing list."},
-				"bucket_list":           {Type: "string", Description: "JSON array of dream destinations, e.g. [\"New Zealand\",\"Iceland\"]. Replaces existing list."},
-				"activity_preferences":  {Type: "string", Description: "JSON array of preferred activities, e.g. [\"museums\",\"food\",\"nature\"]. Replaces existing list."},
-				"dietary_needs":         {Type: "string", Description: "JSON array of dietary requirements, e.g. [\"vegetarian\",\"gluten_free\"]. Replaces existing list."},
-				"notes":                 {Type: "string", Description: "Free-text notes for anything that doesn't fit another field."},
+				"previous_trips":       {Type: "string", Description: "JSON array of cities/countries visited, e.g. [\"Japan\",\"Barcelona\"]. Replaces existing list."},
+				"bucket_list":          {Type: "string", Description: "JSON array of dream destinations, e.g. [\"New Zealand\",\"Iceland\"]. Replaces existing list."},
+				"activity_preferences": {Type: "string", Description: "JSON array of preferred activities, e.g. [\"museums\",\"food\",\"nature\"]. Replaces existing list."},
+				"dietary_needs":        {Type: "string", Description: "JSON array of dietary requirements, e.g. [\"vegetarian\",\"gluten_free\"]. Replaces existing list."},
+				"notes":                {Type: "string", Description: "Free-text notes for anything that doesn't fit another field."},
 			},
 		},
 		OutputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"home_airports":       schemaStringArray(),
-				"home_cities":         schemaStringArray(),
-				"carry_on_only":       schemaBool(),
-				"prefer_direct":       schemaBool(),
-				"no_dormitories":      schemaBool(),
-				"ensuite_only":        schemaBool(),
-				"fast_wifi_needed":    schemaBool(),
-				"min_hotel_stars":     schemaInt(),
-				"min_hotel_rating":    schemaNum(),
-				"display_currency":    schemaString(),
-				"locale":              schemaString(),
-				"loyalty_airlines":    schemaStringArray(),
-				"loyalty_hotels":      schemaStringArray(),
-				"lounge_cards":        schemaStringArray(),
-				"preferred_districts": schemaObject(),
-				"default_companions":     schemaInt(),
-				"trip_types":             schemaStringArray(),
-				"seat_preference":        schemaString(),
-				"budget_per_night_min":   schemaNum(),
-				"budget_per_night_max":   schemaNum(),
-				"budget_flight_max":      schemaNum(),
-				"deal_tolerance":         schemaString(),
-				"flight_time_earliest":   schemaString(),
-				"flight_time_latest":     schemaString(),
-				"red_eye_ok":             schemaBool(),
-				"nationality":            schemaString(),
-				"languages":              schemaStringArray(),
-				"previous_trips":         schemaStringArray(),
-				"bucket_list":            schemaStringArray(),
-				"activity_preferences":   schemaStringArray(),
-				"dietary_needs":          schemaStringArray(),
-				"notes":                  schemaString(),
+				"home_airports":        schemaStringArray(),
+				"home_cities":          schemaStringArray(),
+				"carry_on_only":        schemaBool(),
+				"prefer_direct":        schemaBool(),
+				"no_dormitories":       schemaBool(),
+				"ensuite_only":         schemaBool(),
+				"fast_wifi_needed":     schemaBool(),
+				"min_hotel_stars":      schemaInt(),
+				"min_hotel_rating":     schemaNum(),
+				"display_currency":     schemaString(),
+				"locale":               schemaString(),
+				"loyalty_airlines":     schemaStringArray(),
+				"loyalty_hotels":       schemaStringArray(),
+				"lounge_cards":         schemaStringArray(),
+				"preferred_districts":  schemaObject(),
+				"default_companions":   schemaInt(),
+				"trip_types":           schemaStringArray(),
+				"seat_preference":      schemaString(),
+				"budget_per_night_min": schemaNum(),
+				"budget_per_night_max": schemaNum(),
+				"budget_flight_max":    schemaNum(),
+				"deal_tolerance":       schemaString(),
+				"flight_time_earliest": schemaString(),
+				"flight_time_latest":   schemaString(),
+				"red_eye_ok":           schemaBool(),
+				"nationality":          schemaString(),
+				"languages":            schemaStringArray(),
+				"previous_trips":       schemaStringArray(),
+				"bucket_list":          schemaStringArray(),
+				"activity_preferences": schemaStringArray(),
+				"dietary_needs":        schemaStringArray(),
+				"notes":                schemaString(),
 				"family_members": schemaArray(map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -288,16 +293,17 @@ func handleUpdatePreferences(_ context.Context, args map[string]any, _ ElicitFun
 // handleUpdatePreferencesWithPath is the testable core: when path is "" it uses
 // the default ~/.trvl/preferences.json; otherwise it uses the given path.
 func handleUpdatePreferencesWithPath(args map[string]any, path string, progress ProgressFunc) ([]ContentBlock, interface{}, error) {
-	// Load current preferences.
-	var (
-		p   *preferences.Preferences
-		err error
-	)
-	if path != "" {
-		p, err = preferences.LoadFrom(path)
-	} else {
-		p, err = preferences.Load()
+	resolvedPath, err := resolvePreferenceUpdatePath(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve preferences path: %w", err)
 	}
+
+	lock := preferenceUpdateLock(resolvedPath)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// Load current preferences.
+	p, err := preferences.LoadFrom(resolvedPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load preferences: %w", err)
 	}
@@ -306,12 +312,7 @@ func handleUpdatePreferencesWithPath(args map[string]any, path string, progress 
 	updated := mergePreferenceArgs(p, args)
 
 	// Save.
-	if path != "" {
-		err = preferences.SaveTo(path, updated)
-	} else {
-		err = preferences.Save(updated)
-	}
-	if err != nil {
+	if err := preferences.SaveTo(resolvedPath, updated); err != nil {
 		return nil, nil, fmt.Errorf("save preferences: %w", err)
 	}
 
@@ -321,6 +322,40 @@ func handleUpdatePreferencesWithPath(args map[string]any, path string, progress 
 		return nil, nil, err
 	}
 	return content, updated, nil
+}
+
+func preferenceUpdateLock(path string) *sync.Mutex {
+	lock, _ := preferenceUpdateLocks.LoadOrStore(path, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
+
+func resolvePreferenceUpdatePath(path string) (string, error) {
+	if path == "" {
+		defaultPath, err := preferences.DefaultPath()
+		if err != nil {
+			return "", err
+		}
+		path = defaultPath
+	}
+
+	cleaned := filepath.Clean(path)
+	resolvedPath, err := filepath.EvalSymlinks(cleaned)
+	if err == nil {
+		return resolvedPath, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	resolvedParent, parentErr := filepath.EvalSymlinks(filepath.Dir(cleaned))
+	if parentErr == nil {
+		return filepath.Join(resolvedParent, filepath.Base(cleaned)), nil
+	}
+	if !os.IsNotExist(parentErr) {
+		return "", parentErr
+	}
+
+	return cleaned, nil
 }
 
 // mergePreferenceArgs applies only the fields present in args to the

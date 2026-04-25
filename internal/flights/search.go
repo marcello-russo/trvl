@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/MikkoParkkola/trvl/internal/batchexec"
 	"github.com/MikkoParkkola/trvl/internal/models"
+	"github.com/MikkoParkkola/trvl/internal/searchctx"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -16,6 +19,8 @@ import (
 // Only truly concurrent requests are coalesced; the existing cache layer handles
 // TTL-based reuse between sequential calls.
 var flightGroup singleflight.Group
+
+const sharedFlightSearchTimeout = 30 * time.Second
 
 // DefaultClient returns a shared batchexec.Client for the flights package.
 // The client is created once and reused across all requests, enabling
@@ -84,10 +89,19 @@ func flightSearchKey(origin, destination, date string, opts SearchOptions) strin
 		origin, destination, date, opts.ReturnDate,
 		opts.CabinClass, opts.MaxStops, opts.SortBy, opts.Adults,
 		opts.MaxPrice, opts.MaxDuration, opts.CarryOnBags, opts.CheckedBags,
-		opts.Currency, strings.Join(opts.Airlines, ","),
+		opts.Currency, canonicalStringSlice(opts.Airlines),
 		opts.ExcludeBasic, opts.LessEmissions, opts.RequireCheckedBag,
-		strings.Join(opts.Alliances, ","), opts.DepartAfter, opts.DepartBefore,
+		canonicalStringSlice(opts.Alliances), opts.DepartAfter, opts.DepartBefore,
 	)
+}
+
+func canonicalStringSlice(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	sorted := append([]string(nil), values...)
+	sort.Strings(sorted)
+	return strings.Join(sorted, ",")
 }
 
 // SearchFlightsWithClient is like SearchFlights but accepts a pre-built client,
@@ -107,16 +121,32 @@ func SearchFlightsWithClient(ctx context.Context, client *batchexec.Client, orig
 	}
 
 	key := flightSearchKey(origin, destination, date, opts)
-	v, err, _ := flightGroup.Do(key, func() (any, error) {
-		return searchFlightsCore(ctx, client, origin, destination, date, opts)
+	return doFlightSearchSingleflight(ctx, key, func(sharedCtx context.Context) (*models.FlightSearchResult, error) {
+		return searchFlightsCore(sharedCtx, client, origin, destination, date, opts)
 	})
-	if err != nil {
-		if r, ok := v.(*models.FlightSearchResult); ok {
-			return r, err
-		}
-		return &models.FlightSearchResult{Error: err.Error()}, err
+}
+
+func doFlightSearchSingleflight(ctx context.Context, key string, fn func(context.Context) (*models.FlightSearchResult, error)) (*models.FlightSearchResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	return v.(*models.FlightSearchResult), nil
+
+	ch := flightGroup.DoChan(key, func() (any, error) {
+		sharedCtx, cancel := searchctx.DetachedWithin(ctx, sharedFlightSearchTimeout)
+		defer cancel()
+		return fn(sharedCtx)
+	})
+
+	select {
+	case <-ctx.Done():
+		// The first caller may time out before the shared worker returns and
+		// singleflight evicts the key. Forget it now so a fresh caller does not
+		// attach to an already-doomed execution.
+		flightGroup.Forget(key)
+		return nil, ctx.Err()
+	case res := <-ch:
+		return sharedFlightResult(res.Val, res.Err)
+	}
 }
 
 // searchFlightsCore performs the actual flight search without singleflight wrapping.
@@ -170,6 +200,50 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 	return &models.FlightSearchResult{
 		Error: "unreachable flight search state",
 	}, fmt.Errorf("unreachable flight search state")
+}
+
+func cloneFlightSearchResult(shared *models.FlightSearchResult) *models.FlightSearchResult {
+	if shared == nil {
+		return nil
+	}
+
+	// singleflight.Do shares the winning *FlightSearchResult pointer across all
+	// concurrent callers for the same key. MCP handlers post-filter Flights and
+	// rewrite Count, so each caller needs its own result header and independent
+	// nested slices/pointers to avoid racing on shared state.
+	cp := *shared
+	if shared.Flights != nil {
+		cp.Flights = make([]models.FlightResult, len(shared.Flights))
+		for i, flight := range shared.Flights {
+			flightCopy := flight
+			if flight.Warnings != nil {
+				flightCopy.Warnings = append([]string(nil), flight.Warnings...)
+			}
+			if flight.Legs != nil {
+				flightCopy.Legs = append([]models.FlightLeg(nil), flight.Legs...)
+			}
+			if flight.CarryOnIncluded != nil {
+				carryOn := *flight.CarryOnIncluded
+				flightCopy.CarryOnIncluded = &carryOn
+			}
+			if flight.CheckedBagsIncluded != nil {
+				checkedBags := *flight.CheckedBagsIncluded
+				flightCopy.CheckedBagsIncluded = &checkedBags
+			}
+			cp.Flights[i] = flightCopy
+		}
+	}
+	return &cp
+}
+
+func sharedFlightResult(v any, err error) (*models.FlightSearchResult, error) {
+	if err != nil {
+		if r, ok := v.(*models.FlightSearchResult); ok {
+			return cloneFlightSearchResult(r), err
+		}
+		return &models.FlightSearchResult{Error: err.Error()}, err
+	}
+	return cloneFlightSearchResult(v.(*models.FlightSearchResult)), nil
 }
 
 func searchGoogleFlightsWithClient(ctx context.Context, client *batchexec.Client, origin, destination, date string, opts SearchOptions) (*models.FlightSearchResult, error) {

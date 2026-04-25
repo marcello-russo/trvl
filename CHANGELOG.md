@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Hotel singleflight cache keys** — hotel deduplication keys now include the full `HotelSearchOptions` filter set, with order-insensitive amenity matching, so distinct hotel searches no longer share in-flight results accidentally
+
+### Fixed
+- **MCP handler race safety** — singleflight winners for flights, ground, and hotels are now cloned before caller-specific post-filtering mutates counts, slices, or nested pointers
+- **Singleflight timeout isolation** — shared flight, ground, and hotel upstream work now outlives the first caller's timeout, so one canceled request no longer aborts identical concurrent searches for other callers
+- **Watch scheduler shutdown** — calling `Stop()` before `Start()` no longer deadlocks; lifecycle state is synchronized and remains idempotent
+- **Race regression coverage** — new and expanded tests lock in caller-private result cloning and scheduler lifecycle behavior across the touched packages
+
 ## [1.0.3] - 2026-04-20
 
 ### Added

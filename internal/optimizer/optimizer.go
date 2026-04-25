@@ -72,10 +72,10 @@ type Leg struct {
 
 // OptimizeResult is the output of the optimization engine.
 type OptimizeResult struct {
-	Success  bool           `json:"success"`
+	Success  bool            `json:"success"`
 	Options  []BookingOption `json:"options"`
 	Baseline *BookingOption  `json:"baseline,omitempty"`
-	Error    string         `json:"error,omitempty"`
+	Error    string          `json:"error,omitempty"`
 }
 
 // candidate is an internal search candidate generated during the EXPAND phase.
@@ -281,11 +281,11 @@ func expandCandidates(input OptimizeInput) []*candidate {
 	hiddenCityBeyond := map[string][]string{
 		"AMS": {"HEL", "RIX", "TLL", "ARN"}, // KLM hub — search to Nordics/Baltics via AMS
 		"FRA": {"PRG", "WAW", "BUD", "VIE"}, // Lufthansa hub — search to Central/Eastern Europe via FRA
-		"CDG": {"BRU", "GVA", "LIS"},         // Air France hub
-		"MUC": {"PRG", "VIE", "BUD"},         // Lufthansa hub
-		"IST": {"TBS", "SOF", "OTP"},         // Turkish hub
-		"CPH": {"ARN", "HEL", "OSL"},         // SAS hub
-		"ZRH": {"MXP", "VIE", "MUC"},         // Swiss hub
+		"CDG": {"BRU", "GVA", "LIS"},        // Air France hub
+		"MUC": {"PRG", "VIE", "BUD"},        // Lufthansa hub
+		"IST": {"TBS", "SOF", "OTP"},        // Turkish hub
+		"CPH": {"ARN", "HEL", "OSL"},        // SAS hub
+		"ZRH": {"MXP", "VIE", "MUC"},        // Swiss hub
 	}
 
 	if beyondCities, ok := hiddenCityBeyond[dest]; ok {
@@ -744,7 +744,7 @@ func candidateToOption(c *candidate, rank int, input OptimizeInput) BookingOptio
 		TransferCost: math.Round(c.transferCost),
 		AllInCost:    math.Round(c.allInCost),
 		Currency:     c.currency,
-		HacksApplied: c.hackTypes,
+		HacksApplied: append([]string(nil), c.hackTypes...),
 	}
 }
 

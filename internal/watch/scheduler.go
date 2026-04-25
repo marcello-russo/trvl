@@ -15,7 +15,12 @@ type Scheduler struct {
 	interval time.Duration // how often to run checks
 	checker  PriceChecker  // injected for testability
 
+	mu        sync.Mutex
+	doneOnce  sync.Once
 	startOnce sync.Once
+	stopOnce  sync.Once
+	started   bool
+	stopped   bool
 	cancel    context.CancelFunc
 	done      chan struct{}
 }
@@ -48,8 +53,14 @@ func NewScheduler(dir string, interval time.Duration, checker PriceChecker) *Sch
 // Start launches the background goroutine. Idempotent — subsequent calls are no-ops.
 func (s *Scheduler) Start() {
 	s.startOnce.Do(func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.stopped {
+			return
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
+		s.started = true
 		go s.run(ctx)
 	})
 }
@@ -57,15 +68,26 @@ func (s *Scheduler) Start() {
 // Stop signals the background goroutine to exit and waits for it to finish.
 // Any in-flight price check is cancelled immediately.
 func (s *Scheduler) Stop() {
-	if s.cancel != nil {
-		s.cancel()
-	}
+	s.stopOnce.Do(func() {
+		s.mu.Lock()
+		cancel := s.cancel
+		started := s.started
+		s.stopped = true
+		if !started {
+			s.closeDone()
+		}
+		s.mu.Unlock()
+
+		if cancel != nil {
+			cancel()
+		}
+	})
 	<-s.done
 }
 
 // run is the background loop. ctx is cancelled when Stop is called.
 func (s *Scheduler) run(ctx context.Context) {
-	defer close(s.done)
+	defer s.closeDone()
 
 	// Run one check immediately on startup, then repeat on interval.
 	s.runOnce(ctx)
@@ -107,7 +129,7 @@ func (s *Scheduler) runOnce(ctx context.Context) {
 	checkCtx, cancel := context.WithTimeout(ctx, s.interval/2)
 	defer cancel()
 
-	results := CheckAll(checkCtx, store, s.checker)
+	results := checkWatchesWithRoomsAndWebhookContext(checkCtx, ctx, store, s.checker, nil, active)
 
 	triggered := 0
 	for _, r := range results {
@@ -144,6 +166,12 @@ func (s *Scheduler) runOnce(ctx context.Context) {
 		"checked", len(results),
 		"triggered", triggered,
 	)
+}
+
+func (s *Scheduler) closeDone() {
+	s.doneOnce.Do(func() {
+		close(s.done)
+	})
 }
 
 // activeWatches filters watches to those that are still worth checking:

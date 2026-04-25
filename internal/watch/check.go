@@ -62,24 +62,37 @@ func CheckAll(ctx context.Context, store *Store, checker PriceChecker) []CheckRe
 // CheckAllWithRooms checks all watches, using the room checker for room-type watches
 // and the price checker for flight/hotel watches.
 func CheckAllWithRooms(ctx context.Context, store *Store, checker PriceChecker, roomChecker RoomChecker) []CheckResult {
-	watches := store.List()
+	return checkWatchesWithRoomsAndWebhookContext(ctx, ctx, store, checker, roomChecker, store.List())
+}
+
+// CheckAllWithRoomsAndWebhookContext checks all watches while allowing webhook
+// delivery to outlive the check timeout. The webhook context should typically be
+// a longer-lived parent context that is canceled when the caller is shutting
+// down.
+func CheckAllWithRoomsAndWebhookContext(checkCtx, webhookCtx context.Context, store *Store, checker PriceChecker, roomChecker RoomChecker) []CheckResult {
+	return checkWatchesWithRoomsAndWebhookContext(checkCtx, webhookCtx, store, checker, roomChecker, store.List())
+}
+
+func checkWatchesWithRoomsAndWebhookContext(checkCtx, webhookCtx context.Context, store *Store, checker PriceChecker, roomChecker RoomChecker, watches []Watch) []CheckResult {
+	checkCtx, webhookCtx = normalizeCheckAndWebhookContexts(checkCtx, webhookCtx)
+
 	results := make([]CheckResult, 0, len(watches))
 
 	for i, w := range watches {
 		var r CheckResult
 		if w.IsRoomWatch() && roomChecker != nil {
-			r = checkRoom(ctx, store, roomChecker, w)
+			r = checkRoomWithWebhookContext(checkCtx, webhookCtx, store, roomChecker, w)
 		} else if w.IsRoomWatch() {
 			r = CheckResult{Watch: w, Error: fmt.Errorf("room checker not configured")}
 		} else {
-			r = checkOne(ctx, store, checker, w)
+			r = checkOneWithWebhookContext(checkCtx, webhookCtx, store, checker, w)
 		}
 		results = append(results, r)
 
 		// Pause between checks to respect rate limits (skip after last).
 		if i < len(watches)-1 {
 			select {
-			case <-ctx.Done():
+			case <-checkCtx.Done():
 				return results
 			case <-time.After(3 * time.Second):
 			}
@@ -90,7 +103,13 @@ func CheckAllWithRooms(ctx context.Context, store *Store, checker PriceChecker, 
 
 // checkOne performs a price check for a single watch.
 func checkOne(ctx context.Context, store *Store, checker PriceChecker, w Watch) CheckResult {
-	price, currency, cheapestDate, err := checker.CheckPrice(ctx, w)
+	return checkOneWithWebhookContext(ctx, ctx, store, checker, w)
+}
+
+func checkOneWithWebhookContext(checkCtx, webhookCtx context.Context, store *Store, checker PriceChecker, w Watch) CheckResult {
+	checkCtx, webhookCtx = normalizeCheckAndWebhookContexts(checkCtx, webhookCtx)
+
+	price, currency, cheapestDate, err := checker.CheckPrice(checkCtx, w)
 	if err != nil {
 		return CheckResult{Watch: w, Error: err}
 	}
@@ -139,9 +158,10 @@ func checkOne(ctx context.Context, store *Store, checker PriceChecker, w Watch) 
 		// Update the result's watch to reflect saved state.
 		result.Watch = w
 
-		// Fire webhook on price drop.
+		// Fire webhook on price drop. The webhook context can outlive the check
+		// timeout, but should still be canceled when the scheduler stops.
 		if result.PriceDrop < 0 {
-			go fireWebhook(result)
+			go fireWebhook(webhookCtx, result)
 		}
 	}
 
@@ -150,7 +170,13 @@ func checkOne(ctx context.Context, store *Store, checker PriceChecker, w Watch) 
 
 // checkRoom performs a room availability check for a room watch.
 func checkRoom(ctx context.Context, store *Store, checker RoomChecker, w Watch) CheckResult {
-	matches, err := checker.CheckRooms(ctx, w)
+	return checkRoomWithWebhookContext(ctx, ctx, store, checker, w)
+}
+
+func checkRoomWithWebhookContext(checkCtx, webhookCtx context.Context, store *Store, checker RoomChecker, w Watch) CheckResult {
+	checkCtx, webhookCtx = normalizeCheckAndWebhookContexts(checkCtx, webhookCtx)
+
+	matches, err := checker.CheckRooms(checkCtx, w)
 	if err != nil {
 		return CheckResult{Watch: w, Error: err}
 	}
@@ -214,10 +240,20 @@ func checkRoom(ctx context.Context, store *Store, checker RoomChecker, w Watch) 
 
 	// Fire webhook on price drop.
 	if result.PriceDrop < 0 {
-		go fireWebhook(result)
+		go fireWebhook(webhookCtx, result)
 	}
 
 	return result
+}
+
+func normalizeCheckAndWebhookContexts(checkCtx, webhookCtx context.Context) (context.Context, context.Context) {
+	if checkCtx == nil {
+		checkCtx = context.Background()
+	}
+	if webhookCtx == nil {
+		webhookCtx = checkCtx
+	}
+	return checkCtx, webhookCtx
 }
 
 // webhookPayload is the JSON body POSTed to a watch's WebhookURL on price drop.
@@ -237,7 +273,7 @@ type webhookPayload struct {
 
 // fireWebhook sends a price-drop notification to the watch's WebhookURL.
 // It is fire-and-forget with a 10-second timeout; errors are logged but not returned.
-func fireWebhook(r CheckResult) {
+func fireWebhook(ctx context.Context, r CheckResult) {
 	if r.Watch.WebhookURL == "" {
 		return
 	}
@@ -262,7 +298,7 @@ func fireWebhook(r CheckResult) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.Watch.WebhookURL, bytes.NewReader(body))

@@ -3,6 +3,7 @@ package mcp
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/MikkoParkkola/trvl/internal/preferences"
@@ -213,9 +214,9 @@ func TestUpdatePreferences_InvalidFieldsIgnored(t *testing.T) {
 	path := setupTempPrefs(t, initial)
 
 	args := map[string]any{
-		"nonexistent_field":  "should be ignored",
-		"another_bad_field":  42,
-		"min_hotel_stars":    float64(4), // valid field mixed in
+		"nonexistent_field": "should be ignored",
+		"another_bad_field": 42,
+		"min_hotel_stars":   float64(4), // valid field mixed in
 	}
 
 	_, structured, err := handleUpdatePreferencesWithPath(args, path, nil)
@@ -242,8 +243,8 @@ func TestUpdatePreferences_BooleanFields(t *testing.T) {
 	path := setupTempPrefs(t, initial)
 
 	args := map[string]any{
-		"carry_on_only":   true,
-		"no_dormitories":  true,
+		"carry_on_only":  true,
+		"no_dormitories": true,
 		// prefer_direct NOT included — should stay true.
 	}
 
@@ -342,6 +343,134 @@ func TestUpdatePreferences_NoExistingFile_CreatesNew(t *testing.T) {
 	// File should exist on disk.
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Error("preferences file was not created")
+	}
+}
+
+func TestUpdatePreferences_ConcurrentUpdatesPreserveDisjointFields(t *testing.T) {
+	initial := &preferences.Preferences{
+		DisplayCurrency: "EUR",
+		Locale:          "en",
+	}
+	path := setupTempPrefs(t, initial)
+
+	updateArgs := []map[string]any{
+		{"display_currency": "USD"},
+		{"locale": "fi-FI"},
+	}
+
+	for attempt := 0; attempt < 50; attempt++ {
+		if err := preferences.SaveTo(path, initial); err != nil {
+			t.Fatalf("reset preferences: %v", err)
+		}
+
+		start := make(chan struct{})
+		errs := make(chan error, len(updateArgs))
+
+		var wg sync.WaitGroup
+		for _, args := range updateArgs {
+			wg.Add(1)
+			go func(args map[string]any) {
+				defer wg.Done()
+				<-start
+				_, _, err := handleUpdatePreferencesWithPath(args, path, nil)
+				errs <- err
+			}(args)
+		}
+
+		close(start)
+		wg.Wait()
+		close(errs)
+
+		for err := range errs {
+			if err != nil {
+				t.Fatalf("concurrent update failed: %v", err)
+			}
+		}
+
+		reloaded, err := preferences.LoadFrom(path)
+		if err != nil {
+			t.Fatalf("reload: %v", err)
+		}
+		if reloaded.DisplayCurrency != "USD" || reloaded.Locale != "fi-FI" {
+			t.Fatalf("attempt %d: concurrent updates lost data: got currency=%q locale=%q", attempt, reloaded.DisplayCurrency, reloaded.Locale)
+		}
+	}
+}
+
+func TestUpdatePreferences_DefaultPathConcurrentUpdatesPreserveDisjointFields(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	initial := &preferences.Preferences{
+		DisplayCurrency: "EUR",
+		Locale:          "en",
+	}
+
+	updateArgs := []map[string]any{
+		{"display_currency": "USD"},
+		{"locale": "fi-FI"},
+	}
+
+	for attempt := 0; attempt < 50; attempt++ {
+		if err := preferences.Save(initial); err != nil {
+			t.Fatalf("reset preferences: %v", err)
+		}
+
+		start := make(chan struct{})
+		errs := make(chan error, len(updateArgs))
+
+		var wg sync.WaitGroup
+		for _, args := range updateArgs {
+			wg.Add(1)
+			go func(args map[string]any) {
+				defer wg.Done()
+				<-start
+				_, _, err := handleUpdatePreferencesWithPath(args, "", nil)
+				errs <- err
+			}(args)
+		}
+
+		close(start)
+		wg.Wait()
+		close(errs)
+
+		for err := range errs {
+			if err != nil {
+				t.Fatalf("concurrent update failed: %v", err)
+			}
+		}
+
+		reloaded, err := preferences.Load()
+		if err != nil {
+			t.Fatalf("reload: %v", err)
+		}
+		if reloaded.DisplayCurrency != "USD" || reloaded.Locale != "fi-FI" {
+			t.Fatalf("attempt %d: concurrent default-path updates lost data: got currency=%q locale=%q", attempt, reloaded.DisplayCurrency, reloaded.Locale)
+		}
+	}
+}
+
+func TestResolvePreferenceUpdatePath_ResolvesSymlinkedFilesToSharedLockKey(t *testing.T) {
+	targetPath := setupTempPrefs(t, preferences.Default())
+	symlinkPath := filepath.Join(t.TempDir(), "preferences-link.json")
+	if err := os.Symlink(targetPath, symlinkPath); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	resolvedTarget, err := resolvePreferenceUpdatePath(targetPath)
+	if err != nil {
+		t.Fatalf("resolve target path: %v", err)
+	}
+	resolvedSymlink, err := resolvePreferenceUpdatePath(symlinkPath)
+	if err != nil {
+		t.Fatalf("resolve symlink path: %v", err)
+	}
+
+	if resolvedTarget != resolvedSymlink {
+		t.Fatalf("resolved paths differ: target=%q symlink=%q", resolvedTarget, resolvedSymlink)
+	}
+	if preferenceUpdateLock(resolvedTarget) != preferenceUpdateLock(resolvedSymlink) {
+		t.Fatal("resolved symlink path should share the same mutex as the target path")
 	}
 }
 
@@ -448,8 +577,8 @@ func TestUpdatePreferences_TripTypesAndSeat(t *testing.T) {
 	path := setupTempPrefs(t, initial)
 
 	args := map[string]any{
-		"trip_types":      []any{"city_break", "adventure", "remote_work"},
-		"seat_preference": "window",
+		"trip_types":         []any{"city_break", "adventure", "remote_work"},
+		"seat_preference":    "window",
 		"default_companions": float64(1),
 	}
 
@@ -480,10 +609,10 @@ func TestUpdatePreferences_NotesAndContextFields(t *testing.T) {
 
 	args := map[string]any{
 		"notes":                "I have a fear of flying but manage with medication",
-		"previous_trips":      `["Japan","Spain","Germany"]`,
-		"bucket_list":         `["New Zealand","Iceland"]`,
+		"previous_trips":       `["Japan","Spain","Germany"]`,
+		"bucket_list":          `["New Zealand","Iceland"]`,
 		"activity_preferences": `["museums","food","nature"]`,
-		"dietary_needs":       `["vegetarian"]`,
+		"dietary_needs":        `["vegetarian"]`,
 	}
 
 	_, structured, err := handleUpdatePreferencesWithPath(args, path, nil)
@@ -540,10 +669,10 @@ func TestUpdatePreferences_FlightPreferences(t *testing.T) {
 func TestUpdatePreferences_NewFields_PreserveExisting(t *testing.T) {
 	t.Parallel()
 	initial := &preferences.Preferences{
-		HomeAirports:    []string{"HEL"},
-		DisplayCurrency: "EUR",
-		Locale:          "en-FI",
-		Nationality:     "FI",
+		HomeAirports:      []string{"HEL"},
+		DisplayCurrency:   "EUR",
+		Locale:            "en-FI",
+		Nationality:       "FI",
 		BudgetPerNightMax: 150,
 	}
 	path := setupTempPrefs(t, initial)

@@ -48,9 +48,9 @@ type Preferences struct {
 	LoungeCards           []string              `json:"lounge_cards,omitempty"`            // e.g. ["Priority Pass", "Diners Club"]
 
 	// Travel style (extended)
-	DefaultCompanions int      `json:"default_companions"`          // 0 = solo, 1 = couple, 2+ = family/group
-	TripTypes         []string `json:"trip_types,omitempty"`        // "city_break", "beach", "adventure", "business", "remote_work"
-	SeatPreference    string   `json:"seat_preference"`             // "window", "aisle", "no_preference"
+	DefaultCompanions int      `json:"default_companions"`   // 0 = solo, 1 = couple, 2+ = family/group
+	TripTypes         []string `json:"trip_types,omitempty"` // "city_break", "beach", "adventure", "business", "remote_work"
+	SeatPreference    string   `json:"seat_preference"`      // "window", "aisle", "no_preference"
 
 	// Budget
 	BudgetPerNightMin float64 `json:"budget_per_night_min"` // min acceptable hotel price (filters too-cheap-to-trust)
@@ -64,8 +64,8 @@ type Preferences struct {
 	RedEyeOK           bool   `json:"red_eye_ok"`           // overnight flights acceptable?
 
 	// Identity
-	Nationality string   `json:"nationality"`          // ISO 3166-1 alpha-2 (e.g. "FI") — for visa warnings
-	Languages   []string `json:"languages,omitempty"`   // spoken languages (e.g. ["en", "fi", "sv"])
+	Nationality string   `json:"nationality"`         // ISO 3166-1 alpha-2 (e.g. "FI") — for visa warnings
+	Languages   []string `json:"languages,omitempty"` // spoken languages (e.g. ["en", "fi", "sv"])
 
 	// Context (free-text, not filtered but used for personalization)
 	PreviousTrips       []string `json:"previous_trips,omitempty"`       // cities/countries visited
@@ -104,8 +104,9 @@ type FrequentFlyerStatus struct {
 	ProgramName  string `json:"program_name,omitempty"`  // e.g. "Flying Blue", "Royal Plus"
 }
 
-// defaultPath returns the canonical preferences file path (~/.trvl/preferences.json).
-func defaultPath() (string, error) {
+// DefaultPath returns the canonical preferences file path
+// (~/.trvl/preferences.json).
+func DefaultPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve home directory: %w", err)
@@ -125,7 +126,7 @@ func Default() *Preferences {
 // Load reads preferences from ~/.trvl/preferences.json.
 // If the file does not exist, Default() is returned with no error.
 func Load() (*Preferences, error) {
-	path, err := defaultPath()
+	path, err := DefaultPath()
 	if err != nil {
 		return Default(), nil
 	}
@@ -162,7 +163,7 @@ func LoadFrom(path string) (*Preferences, error) {
 
 // Save writes preferences to ~/.trvl/preferences.json atomically.
 func Save(p *Preferences) error {
-	path, err := defaultPath()
+	path, err := DefaultPath()
 	if err != nil {
 		return err
 	}
