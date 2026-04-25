@@ -156,6 +156,61 @@ func (rt *Runtime) InflightProviders() int64 {
 	return rt.inflight.Load()
 }
 
+// recordRateLimit increments the consecutive-429 counter and, once we cross
+// rateLimitConsecutiveThreshold, halves the limiter's rps down to a floor.
+// Idempotent and goroutine-safe (MIK-3071).
+func (pc *providerClient) recordRateLimit(now time.Time) {
+	pc.rateLimitMu.Lock()
+	defer pc.rateLimitMu.Unlock()
+	pc.consecutive429++
+	pc.lastRateLimit = now
+	if pc.consecutive429 < rateLimitConsecutiveThreshold {
+		return
+	}
+	current := float64(pc.limiter.Limit())
+	next := current / 2
+	if next < rateLimitFloorRPS {
+		next = rateLimitFloorRPS
+	}
+	if next >= current {
+		return
+	}
+	pc.limiter.SetLimit(rate.Limit(next))
+	slog.Warn("provider rate-limit halved",
+		"provider", pc.config.ID,
+		"consecutive_429s", pc.consecutive429,
+		"rps_before", current,
+		"rps_after", next,
+		"floor", rateLimitFloorRPS)
+}
+
+// recordRateLimitSuccess clears the consecutive-429 counter and, when more
+// than rateLimitCooldown has elapsed since the last 429, resets the limiter
+// back to the configured default rps (MIK-3071).
+func (pc *providerClient) recordRateLimitSuccess(now time.Time) {
+	pc.rateLimitMu.Lock()
+	defer pc.rateLimitMu.Unlock()
+	pc.consecutive429 = 0
+	if pc.lastRateLimit.IsZero() {
+		return
+	}
+	if now.Sub(pc.lastRateLimit) < rateLimitCooldown {
+		return
+	}
+	current := float64(pc.limiter.Limit())
+	if current >= pc.defaultRPS {
+		pc.lastRateLimit = time.Time{}
+		return
+	}
+	pc.limiter.SetLimit(rate.Limit(pc.defaultRPS))
+	pc.lastRateLimit = time.Time{}
+	slog.Info("provider rate-limit restored after cooldown",
+		"provider", pc.config.ID,
+		"rps_before", current,
+		"rps_after", pc.defaultRPS,
+		"cooldown", rateLimitCooldown)
+}
+
 // providerClient holds per-provider HTTP state.
 type providerClient struct {
 	config     *ProviderConfig
@@ -170,6 +225,13 @@ type providerClient struct {
 	// and the auth cache must be invalidated — WAF cookies obtained for one
 	// dest_id are rejected for a different one.
 	lastPreflightURL string
+
+	// MIK-3071 adaptive rate limit state. defaultRPS captures the original
+	// configured rate so we can reset after the cooldown window.
+	rateLimitMu     sync.Mutex
+	consecutive429  int
+	lastRateLimit   time.Time
+	defaultRPS      float64
 }
 
 // NewRuntime creates a Runtime backed by the given registry.
@@ -266,6 +328,7 @@ func (rt *Runtime) getOrCreateClient(cfg *ProviderConfig) *providerClient {
 		client:     httpClient,
 		limiter:    rate.NewLimiter(rate.Limit(rps), burst),
 		authValues: make(map[string]string),
+		defaultRPS: rps,
 	}
 	rt.clients[cfg.ID] = pc
 
@@ -861,17 +924,67 @@ func (rt *Runtime) searchProvider(ctx context.Context, cfg *ProviderConfig, loca
 		req.Header.Set("X-Personal-Use", "trvl personal noncommercial https://github.com/MikkoParkkola/trvl")
 	}
 
-	// Send request.
-	resp, err := pc.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
+	// Send request, with 429 + Retry-After retry loop (MIK-3071).
+	// We attempt the request up to 1 + max429Retries times; between attempts
+	// we sleep for Retry-After (or a sane default) and rebuild the body via
+	// req.GetBody. Adaptive halving of the per-provider rate limit happens
+	// inside pc.recordRateLimit so other in-flight goroutines back off too.
+	const max429Retries = 2
+	var resp *http.Response
+	var body []byte
+	for attempt := 0; ; attempt++ {
+		var doErr error
+		resp, doErr = pc.client.Do(req)
+		if doErr != nil {
+			return nil, fmt.Errorf("http request: %w", doErr)
+		}
+		body, err = decompressBody(resp, maxResponseBytes)
+		if err != nil {
+			resp.Body.Close()
+			return nil, fmt.Errorf("read response: %w", err)
+		}
+		resp.Body.Close()
 
-	body, err := decompressBody(resp, maxResponseBytes)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		if resp.StatusCode != http.StatusTooManyRequests {
+			break
+		}
+
+		// 429 path. Update adaptive limiter, sleep, then either retry or fail.
+		now := time.Now()
+		pc.recordRateLimit(now)
+		retryAfter := retryAfterOrDefault(resp.Header.Get("Retry-After"), now)
+		slog.Warn("provider rate-limited (429)",
+			"provider", cfg.ID,
+			"attempt", attempt+1,
+			"retry_after_s", retryAfter.Seconds(),
+			"max_attempts", max429Retries+1)
+
+		if attempt >= max429Retries {
+			return nil, fmt.Errorf("rate limit: %s returned 429 after %d attempts (last retry-after %v)",
+				cfg.ID, max429Retries+1, retryAfter)
+		}
+
+		select {
+		case <-time.After(retryAfter):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+
+		// Rebuild request body for the next attempt. NewRequestWithContext
+		// auto-sets GetBody when the body is *strings.Reader / *bytes.Reader,
+		// so this is safe for our POST/JSON providers.
+		if req.GetBody != nil {
+			fresh, gbErr := req.GetBody()
+			if gbErr != nil {
+				return nil, fmt.Errorf("rate limit: rebuild body: %w", gbErr)
+			}
+			req.Body = fresh
+		}
 	}
+	// Non-429 path: clear the consecutive-429 counter and possibly restore
+	// the configured rate after the cooldown window.
+	pc.recordRateLimitSuccess(time.Now())
+
 	slog.Debug("search response", "provider", cfg.ID, "status", resp.StatusCode, "body_len", len(body),
 		"content_encoding", resp.Header.Get("Content-Encoding"),
 		"is_challenge", isAkamaiChallenge(resp.StatusCode, body))
