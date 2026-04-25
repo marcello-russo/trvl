@@ -17,38 +17,44 @@ import (
 	"github.com/MikkoParkkola/trvl/internal/explore"
 	"github.com/MikkoParkkola/trvl/internal/flights"
 	"github.com/MikkoParkkola/trvl/internal/hotels"
+	"github.com/MikkoParkkola/trvl/internal/match"
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/preferences"
 )
 
 // DiscoverOptions configures an inverted-search discovery.
 type DiscoverOptions struct {
-	Origin     string  // IATA (default: first home_airport from prefs)
-	From       string  // earliest depart date YYYY-MM-DD (required)
-	Until      string  // latest return date YYYY-MM-DD (required)
-	Budget     float64 // max total EUR (required)
-	MinNights  int     // default 2
-	MaxNights  int     // default 4
-	Top        int     // results to return (default 5)
-	FlexDays   int     // how many start-of-trip candidates to enumerate (default: all Fridays in window)
+	Origin    string  // IATA (default: first home_airport from prefs)
+	From      string  // earliest depart date YYYY-MM-DD (required)
+	Until     string  // latest return date YYYY-MM-DD (required)
+	Budget    float64 // max total EUR (required)
+	MinNights int     // default 2
+	MaxNights int     // default 4
+	Top       int     // results to return (default 5)
+	FlexDays  int     // how many start-of-trip candidates to enumerate (default: all Fridays in window)
 }
 
 // DiscoverResult is a single ranked trip option.
 type DiscoverResult struct {
-	Destination   string  `json:"destination"`
-	AirportCode   string  `json:"airport_code"`
-	DepartDate    string  `json:"depart_date"`
-	ReturnDate    string  `json:"return_date"`
-	Nights        int     `json:"nights"`
-	FlightPrice   float64 `json:"flight_price"`
-	HotelPrice    float64 `json:"hotel_price"`
-	HotelName     string  `json:"hotel_name"`
-	HotelRating   float64 `json:"hotel_rating"`
-	Total         float64 `json:"total"`
-	Currency      string  `json:"currency"`
-	ValueScore    float64 `json:"value_score"`  // 0..1 — higher is better
-	BudgetSlack   float64 `json:"budget_slack"` // currency units remaining
-	Reasoning     string  `json:"reasoning,omitempty"`
+	Destination string  `json:"destination"`
+	AirportCode string  `json:"airport_code"`
+	DepartDate  string  `json:"depart_date"`
+	ReturnDate  string  `json:"return_date"`
+	Nights      int     `json:"nights"`
+	FlightPrice float64 `json:"flight_price"`
+	HotelPrice  float64 `json:"hotel_price"`
+	HotelName   string  `json:"hotel_name"`
+	HotelRating float64 `json:"hotel_rating"`
+	Total       float64 `json:"total"`
+	Currency    string  `json:"currency"`
+	ValueScore  float64 `json:"value_score"`  // 0..1 — higher is better
+	BudgetSlack float64 `json:"budget_slack"` // currency units remaining
+	Reasoning   string  `json:"reasoning,omitempty"`
+	// RequestMatch is the 0..100 score describing how close this offered
+	// itinerary is to the user's literal ask. 100 = exact-on-every-axis.
+	// MIK-3063: orthogonal to ValueScore (which judges the offer's quality).
+	RequestMatch       int    `json:"request_match,omitempty"`
+	RequestMatchReason string `json:"request_match_reason,omitempty"`
 }
 
 // DiscoverOutput is the top-level response.
@@ -297,7 +303,11 @@ func Discover(ctx context.Context, opts DiscoverOptions) (*DiscoverOutput, error
 	}
 	hotelWg.Wait()
 
-	results := rankDiscoverTrials(trials, hotelResults, opts.Budget, currency, opts.Top)
+	// MIK-3063: build the RequestMatch anchor once, then pass it down so
+	// every ranked DiscoverResult can carry a 0..100 fidelity score.
+	matchReq := buildDiscoverMatchRequest(opts, fromDate, untilDate, currency)
+
+	results := rankDiscoverTrials(trials, hotelResults, opts.Budget, currency, opts.Top, matchReq)
 
 	return &DiscoverOutput{
 		Success: true,
@@ -350,7 +360,34 @@ type discoverHotelInfo struct {
 //
 // This rewards trips that come in well under budget AT a quality hotel,
 // and penalizes trips that blow budget or have weak ratings.
-func rankDiscoverTrials(trials []discoverTrial, hotelResults map[discoverTrialKey]*discoverHotelInfo, budget float64, currency string, top int) []DiscoverResult {
+// buildDiscoverMatchRequest constructs the match.Request anchor used to
+// score every DiscoverResult. The date window centres on the midpoint of
+// [fromDate, untilDate]; the no-penalty range is half the window length
+// so dates anywhere inside the user-supplied window stay at 100. Nights
+// anchor on the midpoint of [MinNights, MaxNights] with no flex, so a
+// trip taking exactly the asked-for duration scores 100 and a trip at
+// either extreme drops by at most half the night range × the per-night
+// penalty (small, but visible — the AC requires a non-trivial signal).
+func buildDiscoverMatchRequest(opts DiscoverOptions, fromDate, untilDate time.Time, currency string) match.Request {
+	center := fromDate.Add(untilDate.Sub(fromDate) / 2)
+	halfWindowDays := int(untilDate.Sub(fromDate).Hours()/24) / 2
+	if halfWindowDays < 0 {
+		halfWindowDays = 0
+	}
+	idealNights := (opts.MinNights + opts.MaxNights) / 2
+	if idealNights < 1 {
+		idealNights = 1
+	}
+	return match.Request{
+		DepartDate:     center,
+		DateWindowDays: halfWindowDays,
+		PrimaryOrigin:  opts.Origin,
+		Nights:         idealNights,
+		Currency:       currency,
+	}
+}
+
+func rankDiscoverTrials(trials []discoverTrial, hotelResults map[discoverTrialKey]*discoverHotelInfo, budget float64, currency string, top int, matchReq match.Request) []DiscoverResult {
 	var results []DiscoverResult
 	for _, t := range trials {
 		k := discoverTrialKey{airport: t.dest.AirportCode, nights: t.window.nights}
@@ -382,21 +419,32 @@ func rankDiscoverTrials(trials []discoverTrial, hotelResults map[discoverTrialKe
 
 		reasoning := buildDiscoverReasoning(quality, budgetFit, h.rating, slack, currency)
 
+		// MIK-3063: score this offer against the user's literal ask.
+		offered := match.Offered{
+			DepartDate: t.window.start,
+			Origin:     matchReq.PrimaryOrigin,
+			Nights:     t.window.nights,
+			Currency:   currency,
+		}
+		ms := match.Compute(matchReq, offered)
+
 		results = append(results, DiscoverResult{
-			Destination: cityName,
-			AirportCode: t.dest.AirportCode,
-			DepartDate:  t.window.start.Format("2006-01-02"),
-			ReturnDate:  t.window.end.Format("2006-01-02"),
-			Nights:      t.window.nights,
-			FlightPrice: t.dest.Price,
-			HotelPrice:  h.total,
-			HotelName:   h.name,
-			HotelRating: h.rating,
-			Total:       total,
-			Currency:    currency,
-			ValueScore:  valueScore,
-			BudgetSlack: slack,
-			Reasoning:   reasoning,
+			Destination:        cityName,
+			AirportCode:        t.dest.AirportCode,
+			DepartDate:         t.window.start.Format("2006-01-02"),
+			ReturnDate:         t.window.end.Format("2006-01-02"),
+			Nights:             t.window.nights,
+			FlightPrice:        t.dest.Price,
+			HotelPrice:         h.total,
+			HotelName:          h.name,
+			RequestMatch:       ms.Total,
+			RequestMatchReason: ms.Reason,
+			HotelRating:        h.rating,
+			Total:              total,
+			Currency:           currency,
+			ValueScore:         valueScore,
+			BudgetSlack:        slack,
+			Reasoning:          reasoning,
 		})
 	}
 
