@@ -3,6 +3,7 @@ package flights
 import (
 	"encoding/json"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/MikkoParkkola/trvl/internal/jsonutil"
@@ -286,6 +287,68 @@ func TestBuildFilters_RoundTrip(t *testing.T) {
 	// Sort by should be 2 (cheapest)
 	if sortBy, ok := arr[2].(float64); !ok || int(sortBy) != 2 {
 		t.Errorf("sort by: got %v, want 2 (cheapest)", arr[2])
+	}
+}
+
+func TestBuildFilters_BagsUseArrayWireFormat(t *testing.T) {
+	opts := SearchOptions{
+		Adults:      1,
+		CabinClass:  models.Economy,
+		CarryOnBags: 1,
+		CheckedBags: 2,
+	}
+	filters := buildFilters("HEL", "NRT", "2026-06-15", opts)
+
+	data, err := json.Marshal(filters)
+	if err != nil {
+		t.Fatalf("marshal filters: %v", err)
+	}
+
+	var arr []any
+	if err := json.Unmarshal(data, &arr); err != nil {
+		t.Fatalf("unmarshal filters: %v", err)
+	}
+
+	settings, ok := arr[1].([]any)
+	if !ok {
+		t.Fatalf("arr[1] not array")
+	}
+
+	got, ok := settings[10].([]any)
+	if !ok {
+		t.Fatalf("settings[10] type = %T, want []any", settings[10])
+	}
+	if len(got) != 2 {
+		t.Fatalf("settings[10] len = %d, want 2", len(got))
+	}
+	if carryOn, ok := got[0].(float64); !ok || int(carryOn) != 1 {
+		t.Errorf("carry-on bags: got %v, want 1", got[0])
+	}
+	if checked, ok := got[1].(float64); !ok || int(checked) != 2 {
+		t.Errorf("checked bags: got %v, want 2", got[1])
+	}
+}
+
+func TestBagsFilter(t *testing.T) {
+	tests := []struct {
+		name    string
+		carryOn int
+		checked int
+		want    any
+	}{
+		{name: "unset", carryOn: 0, checked: 0, want: nil},
+		{name: "carry on only", carryOn: 1, checked: 0, want: []any{1, 0}},
+		{name: "checked only", carryOn: 0, checked: 1, want: []any{0, 1}},
+		{name: "both", carryOn: 2, checked: 1, want: []any{2, 1}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := bagsFilter(tt.carryOn, tt.checked)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("bagsFilter(%d, %d) = %#v, want %#v", tt.carryOn, tt.checked, got, tt.want)
+			}
+		})
 	}
 }
 

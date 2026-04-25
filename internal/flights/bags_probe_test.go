@@ -18,7 +18,7 @@ import (
 // Variations tested:
 //
 //	nil             no filter
-//	1               carry-on = 1 (our current bagsFilter format)
+//	1               legacy scalar carry-on encoding (rejected by Google)
 //	[1, 0]          carry-on 1, checked 0
 //	[1, 1]          carry-on 1, checked 1
 //	[0, 1]          no carry-on, checked 1
@@ -148,7 +148,7 @@ func TestBagsProbe(t *testing.T) {
 
 	// Check: scalar integers rejected?
 	if r := m["1"]; r != nil && r.status == 400 {
-		t.Log("BUG: scalar 1 at [10] returns 400 -- our current bagsFilter() is broken for batchexecute")
+		t.Log("CONFIRMED: scalar 1 at [10] returns 400 -- legacy scalar bag encoding is rejected")
 	}
 	if r := m["2"]; r != nil && r.status == 400 {
 		t.Log("CONFIRMED: scalar 2 also returns 400 -- Google rejects scalar ints at [10]")
