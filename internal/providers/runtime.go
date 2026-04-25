@@ -490,14 +490,30 @@ func (rt *Runtime) searchProvider(ctx context.Context, cfg *ProviderConfig, loca
 	// overwrite the browser's authenticated cookies in the jar — replacing a
 	// real-user session with a bot-classified one. This is the root cause of
 	// Booking.com returning 0 results despite having valid browser cookies.
+	// authSnapshot holds the per-call view of pc.authValues that was valid for
+	// THIS preflight invocation. Using this snapshot rather than re-reading
+	// pc.authValues later eliminates the MIK-3070 race in which a concurrent
+	// search to a different city (different ${city_id}) invalidates pc.authValues
+	// between our preflight return and our auth-vars read.
+	var authSnapshot map[string]string
 	if cfg.Auth != nil && cfg.Auth.Type == "preflight" {
 		skipPreflight := browserCookiesApplied && len(cfg.Auth.Extractions) == 0
 		if skipPreflight {
 			slog.Info("skipping preflight: browser cookies already loaded, no extractions needed",
 				"provider", cfg.ID)
-		} else if err := rt.runPreflight(ctx, pc, vars); err != nil {
-			return nil, fmt.Errorf("preflight: %w", err)
+			authSnapshot = snapshotAuthValuesLocked(pc)
+		} else {
+			snap, err := rt.runPreflight(ctx, pc, vars)
+			if err != nil {
+				return nil, fmt.Errorf("preflight: %w", err)
+			}
+			authSnapshot = snap
 		}
+	} else {
+		// Non-preflight auth (header tokens, env-loaded creds): snapshot what
+		// other code paths populated under lock so the read at the auth-vars
+		// substitution site below is consistent with the snapshot.
+		authSnapshot = snapshotAuthValuesLocked(pc)
 	}
 
 	// Add filter variables when provided. These allow provider URL
@@ -646,11 +662,13 @@ func (rt *Runtime) searchProvider(ctx context.Context, cfg *ProviderConfig, loca
 	}
 
 	// Add auth-extracted variables.
-	pc.authMu.RLock()
-	for k, v := range pc.authValues {
+	// Use authSnapshot (captured at preflight time) instead of re-reading
+	// pc.authValues here. A concurrent search to a different city can mutate
+	// pc.authValues between preflight return and this read; the snapshot is
+	// the values that were valid for OUR preflight URL. See MIK-3070.
+	for k, v := range authSnapshot {
 		vars["${"+k+"}"] = v
 	}
-	pc.authMu.RUnlock()
 
 	// Build endpoint URL. After substitution, strip any remaining ${...}
 	// placeholders and their preceding &/? separators so optional filter

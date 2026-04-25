@@ -1401,7 +1401,7 @@ func TestRunPreflight_NilAuth(t *testing.T) {
 	}
 
 	// No auth config -> should return nil immediately.
-	err := rt.runPreflight(context.Background(), pc, nil)
+	_, err := rt.runPreflight(context.Background(), pc, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1419,7 +1419,7 @@ func TestRunPreflight_EmptyPreflightURL(t *testing.T) {
 		authValues: make(map[string]string),
 	}
 
-	err := rt.runPreflight(context.Background(), pc, nil)
+	_, err := rt.runPreflight(context.Background(), pc, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1450,7 +1450,7 @@ func TestRunPreflight_SuccessfulExtraction(t *testing.T) {
 		authValues: make(map[string]string),
 	}
 
-	err := rt.runPreflight(context.Background(), pc, nil)
+	_, err := rt.runPreflight(context.Background(), pc, nil)
 	if err != nil {
 		t.Fatalf("runPreflight: %v", err)
 	}
@@ -1479,12 +1479,12 @@ func TestRunPreflight_CacheValid(t *testing.T) {
 	}
 
 	// First call populates cache.
-	if err := rt.runPreflight(context.Background(), pc, nil); err != nil {
+	if _, err := rt.runPreflight(context.Background(), pc, nil); err != nil {
 		t.Fatalf("first preflight: %v", err)
 	}
 
 	// Second call should hit the cache (same URL, within expiry).
-	if err := rt.runPreflight(context.Background(), pc, nil); err != nil {
+	if _, err := rt.runPreflight(context.Background(), pc, nil); err != nil {
 		t.Fatalf("second preflight (cached): %v", err)
 	}
 }

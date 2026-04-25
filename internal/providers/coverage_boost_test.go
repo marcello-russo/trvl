@@ -62,11 +62,15 @@ func TestRunPreflight_SuccessWithExtraction(t *testing.T) {
 		authValues: make(map[string]string),
 	}
 
-	if err := rt.runPreflight(context.Background(), pc, map[string]string{}); err != nil {
+	snap, err := rt.runPreflight(context.Background(), pc, map[string]string{})
+	if err != nil {
 		t.Fatalf("runPreflight: %v", err)
 	}
+	if snap["csrf_token"] != "abc123XYZ" {
+		t.Errorf("csrf_token (snapshot) = %q, want 'abc123XYZ'", snap["csrf_token"])
+	}
 	if pc.authValues["csrf_token"] != "abc123XYZ" {
-		t.Errorf("csrf_token = %q, want 'abc123XYZ'", pc.authValues["csrf_token"])
+		t.Errorf("csrf_token (pc) = %q, want 'abc123XYZ'", pc.authValues["csrf_token"])
 	}
 	if pc.authExpiry.IsZero() {
 		t.Error("authExpiry should be set after successful preflight")
@@ -96,7 +100,7 @@ func TestRunPreflight_PreflightError(t *testing.T) {
 		authValues: make(map[string]string),
 	}
 
-	err := rt.runPreflight(context.Background(), pc, map[string]string{})
+	_, err := rt.runPreflight(context.Background(), pc, map[string]string{})
 	if err == nil {
 		t.Fatal("expected error when preflight URL is unreachable")
 	}

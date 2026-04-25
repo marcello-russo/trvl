@@ -23,9 +23,18 @@ import (
 // resolved in the preflight URL, so WAF cookies are obtained for the actual
 // target city rather than a hardcoded default. When the resolved URL differs
 // from the last preflight (city changed), the auth cache is invalidated.
-func (rt *Runtime) runPreflight(ctx context.Context, pc *providerClient, vars map[string]string) error {
+//
+// Returns an immutable snapshot of the auth values that were valid for THIS
+// preflight call. Callers MUST use the returned snapshot rather than re-reading
+// pc.authValues later — between the call site and the read, a concurrent
+// search to a different city can swap the values out from under us. See
+// MIK-3070 for the race that motivated this signature.
+func (rt *Runtime) runPreflight(ctx context.Context, pc *providerClient, vars map[string]string) (map[string]string, error) {
 	if pc.config.Auth == nil || pc.config.Auth.PreflightURL == "" {
-		return nil
+		// No preflight needed — but the caller may still rely on existing
+		// pc.authValues populated by other paths (header-based auth, env tokens).
+		// Return a snapshot so the caller's later read is race-free.
+		return snapshotAuthValuesLocked(pc), nil
 	}
 
 	// Resolve search-specific vars in the preflight URL so that ${city_id}
@@ -34,17 +43,20 @@ func (rt *Runtime) runPreflight(ctx context.Context, pc *providerClient, vars ma
 
 	pc.authMu.RLock()
 	cacheValid := time.Now().Before(pc.authExpiry) && pc.lastPreflightURL == resolvedURL
-	pc.authMu.RUnlock()
 	if cacheValid {
-		return nil
+		// Snapshot under RLock so a concurrent invalidation cannot interleave.
+		snap := copyAuthValues(pc.authValues)
+		pc.authMu.RUnlock()
+		return snap, nil
 	}
+	pc.authMu.RUnlock()
 
 	pc.authMu.Lock()
 	defer pc.authMu.Unlock()
 
 	// Double-check after lock.
 	if time.Now().Before(pc.authExpiry) && pc.lastPreflightURL == resolvedURL {
-		return nil
+		return copyAuthValues(pc.authValues), nil
 	}
 
 	// Build a shallow copy of the auth config with the resolved URL so that
@@ -59,7 +71,7 @@ func (rt *Runtime) runPreflight(ctx context.Context, pc *providerClient, vars ma
 
 	resp, body, err := doPreflightRequest(ctx, pc.client, &resolvedAuth)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	extracted := applyExtractions(resolvedAuth.Extractions, resp, body, pc.authValues)
@@ -83,14 +95,14 @@ func (rt *Runtime) runPreflight(ctx context.Context, pc *providerClient, vars ma
 			saveCachedCookies(pc.client, resolvedURL)
 			pc.lastPreflightURL = resolvedURL
 			pc.authExpiry = time.Now().Add(authCacheDuration)
-			return nil
+			return copyAuthValues(pc.authValues), nil
 		}
 		// Tier 3b: run WAF challenge.js in sobek JS engine (pure Go).
 		if tryWAFSolve(ctx, pc, &resolvedAuth, resp.StatusCode, body) {
 			saveCachedCookies(pc.client, resolvedURL)
 			pc.lastPreflightURL = resolvedURL
 			pc.authExpiry = time.Now().Add(authCacheDuration)
-			return nil
+			return copyAuthValues(pc.authValues), nil
 		}
 		// Tier 4: last-resort escape hatch — open in browser.
 		if resolvedAuth.BrowserEscapeHatch && isInteractive(ctx) {
@@ -98,7 +110,7 @@ func (rt *Runtime) runPreflight(ctx context.Context, pc *providerClient, vars ma
 				saveCachedCookies(pc.client, resolvedURL)
 				pc.lastPreflightURL = resolvedURL
 				pc.authExpiry = time.Now().Add(authCacheDuration)
-				return nil
+				return copyAuthValues(pc.authValues), nil
 			}
 		}
 	}
@@ -107,7 +119,27 @@ func (rt *Runtime) runPreflight(ctx context.Context, pc *providerClient, vars ma
 	saveCachedCookies(pc.client, resolvedURL)
 	pc.lastPreflightURL = resolvedURL
 	pc.authExpiry = time.Now().Add(authCacheDuration)
-	return nil
+	return copyAuthValues(pc.authValues), nil
+}
+
+// copyAuthValues returns a defensive copy of m. Always called under either
+// pc.authMu read or write lock to avoid concurrent-map-iteration. Returns a
+// non-nil map even when m is empty/nil so callers can iterate freely.
+func copyAuthValues(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// snapshotAuthValuesLocked acquires the read lock to take a defensive copy.
+// Used in the no-preflight code path where callers expected pc.authValues
+// directly; the snapshot eliminates the cross-call race in MIK-3070.
+func snapshotAuthValuesLocked(pc *providerClient) map[string]string {
+	pc.authMu.RLock()
+	defer pc.authMu.RUnlock()
+	return copyAuthValues(pc.authValues)
 }
 
 // tryBrowserCookieRetry is Tier 3: read cookies from the user's disk-backed
