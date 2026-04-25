@@ -26,6 +26,7 @@ type HealthEntry struct {
 	LatencyMs int64  `json:"latency_ms"`
 	Results   int    `json:"results,omitempty"`
 	Error     string `json:"error,omitempty"`
+	HintCode  string `json:"hint_code,omitempty"` // typed root-cause code when status != "ok"
 }
 
 // ProviderHealth is the per-provider aggregate computed by HealthSummary.
@@ -38,6 +39,7 @@ type ProviderHealth struct {
 	SuccessRate  float64 `json:"success_rate"`
 	AvgLatencyMs int64   `json:"avg_latency_ms"`
 	LastError    string  `json:"last_error,omitempty"`
+	LastHintCode string  `json:"last_hint_code,omitempty"` // most recent root-cause code for failures
 }
 
 // healthWriter is the package-level singleton that owns the write goroutine.
@@ -169,12 +171,13 @@ func HealthSummary(dir string) map[string]ProviderHealth {
 	}
 
 	type agg struct {
-		total     int
-		successes int
-		errors    int
-		timeouts  int
-		latSum    int64
-		lastErr   string
+		total        int
+		successes    int
+		errors       int
+		timeouts     int
+		latSum       int64
+		lastErr      string
+		lastHintCode string
 	}
 	m := make(map[string]*agg)
 
@@ -194,10 +197,16 @@ func HealthSummary(dir string) map[string]ProviderHealth {
 			if e.Error != "" {
 				a.lastErr = e.Error
 			}
+			if e.HintCode != "" {
+				a.lastHintCode = e.HintCode
+			}
 		default:
 			a.errors++
 			if e.Error != "" {
 				a.lastErr = e.Error
+			}
+			if e.HintCode != "" {
+				a.lastHintCode = e.HintCode
 			}
 		}
 	}
@@ -221,6 +230,7 @@ func HealthSummary(dir string) map[string]ProviderHealth {
 			SuccessRate:  rate,
 			AvgLatencyMs: avgLat,
 			LastError:    a.lastErr,
+			LastHintCode: a.lastHintCode,
 		}
 	}
 	return result

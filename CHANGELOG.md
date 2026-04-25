@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`FixHintCode` enum** — typed root-cause classifier (`AKAMAI_BLOCK`, `DNS_FAIL`, `TLS_TIMEOUT`, `COOKIE_EXPIRED`, `RATE_LIMITED`, `RESPONSE_SHAPE_CHANGED`, `PREFLIGHT_FAILED`, `UNCLASSIFIED`) surfaced in MCP search responses (`fix_hint_code` field on `provider_statuses`) and in the `provider_health` aggregate (`last_hint_code`); persisted per-entry in `~/.trvl/health.jsonl` (`hint_code` field)
+
 ### Changed
 - **Hotel singleflight cache keys** — hotel deduplication keys now include the full `HotelSearchOptions` filter set, with order-insensitive amenity matching, so distinct hotel searches no longer share in-flight results accidentally
+- **`providerFixHint`** — now delegates to the new `classifyProviderError` classifier; hint text updated to be more actionable and accurate (back-compatible: the `fix_hint` string field is still populated)
 
 ### Fixed
 - **MCP handler race safety** — singleflight winners for flights, ground, and hotels are now cloned before caller-specific post-filtering mutates counts, slices, or nested pointers

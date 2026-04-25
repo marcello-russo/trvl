@@ -308,19 +308,22 @@ func (rt *Runtime) SearchHotels(ctx context.Context, location string, lat, lon f
 			if isTimeoutError(r.err) {
 				status = "timeout"
 			}
+			hintCode, hint := classifyProviderError(r.err)
 			LogHealth(HealthEntry{
 				Provider:  r.id,
 				Operation: "search",
 				Status:    status,
 				LatencyMs: r.latencyMs,
 				Error:     errMsg,
+				HintCode:  string(hintCode),
 			})
 			statuses = append(statuses, models.ProviderStatus{
-				ID:      r.id,
-				Name:    r.name,
-				Status:  "error",
-				Error:   errMsg,
-				FixHint: providerFixHint(r.err),
+				ID:          r.id,
+				Name:        r.name,
+				Status:      "error",
+				Error:       errMsg,
+				FixHint:     hint,
+				FixHintCode: string(hintCode),
 			})
 			if firstErr == nil {
 				firstErr = r.err
@@ -361,21 +364,12 @@ func isTimeoutError(err error) bool {
 		strings.Contains(msg, "timeout")
 }
 
-// providerFixHint generates an actionable LLM-readable hint for common failures.
+// providerFixHint returns the human-readable hint for a provider error.
+// It delegates to classifyProviderError and is kept for backward compatibility
+// with any callers that only need the hint string.
 func providerFixHint(err error) string {
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "preflight"):
-		return "Call test_provider with this provider's id to diagnose. WAF/auth may need refresh."
-	case strings.Contains(msg, "results_path"):
-		return "API response structure changed. Call test_provider to see current response shape, then configure_provider to update results_path."
-	case strings.Contains(msg, "http 403"), strings.Contains(msg, "http 202"):
-		return "WAF block detected. Try test_provider — if it fails, the provider may need browser cookie refresh."
-	case strings.Contains(msg, "rate limit"):
-		return "Rate limited. Wait and retry, or reduce request frequency in provider config."
-	default:
-		return "Call test_provider with this provider's id to diagnose the issue."
-	}
+	_, hint := classifyProviderError(err)
+	return hint
 }
 
 func (rt *Runtime) searchProvider(ctx context.Context, cfg *ProviderConfig, location string, lat, lon float64, checkin, checkout, currency string, guests int, filters *HotelFilterParams) ([]models.HotelResult, error) {
