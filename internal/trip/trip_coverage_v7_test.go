@@ -370,7 +370,7 @@ func TestRankDiscoverTrials_Basic(t *testing.T) {
 	hotelResults := map[discoverTrialKey]*discoverHotelInfo{
 		{airport: "BCN", nights: 2}: {price: 75, total: 150, name: "Hotel BCN", rating: 4.2},
 	}
-	results := rankDiscoverTrials(trials, hotelResults, 500, "EUR", 5)
+	results := rankDiscoverTrials(trials, hotelResults, 500, "EUR", 5, nil)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -411,8 +411,11 @@ func TestRankDiscoverTrials_Basic(t *testing.T) {
 	if r.BudgetSlack != 250 {
 		t.Errorf("slack = %v, want 250", r.BudgetSlack)
 	}
-	if r.ValueScore <= 0 {
-		t.Errorf("value score = %v, want > 0", r.ValueScore)
+	if r.ProfileMatch <= 0 {
+		t.Errorf("profile match = %v, want > 0", r.ProfileMatch)
+	}
+	if r.MatchBreakdown == nil {
+		t.Error("match breakdown should not be nil")
 	}
 	if r.Reasoning == "" {
 		t.Error("reasoning should not be empty")
@@ -433,7 +436,7 @@ func TestRankDiscoverTrials_ExceedsBudget(t *testing.T) {
 		{airport: "BCN", nights: 2}: {total: 200, name: "H"},
 	}
 	// Budget=500, total=600 -> exceeds.
-	results := rankDiscoverTrials(trials, hotelResults, 500, "EUR", 5)
+	results := rankDiscoverTrials(trials, hotelResults, 500, "EUR", 5, nil)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results for over-budget, got %d", len(results))
 	}
@@ -450,13 +453,13 @@ func TestRankDiscoverTrials_NoHotelData(t *testing.T) {
 		},
 	}
 	// No hotel data for BCN.
-	results := rankDiscoverTrials(trials, map[discoverTrialKey]*discoverHotelInfo{}, 500, "EUR", 5)
+	results := rankDiscoverTrials(trials, map[discoverTrialKey]*discoverHotelInfo{}, 500, "EUR", 5, nil)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results for missing hotel, got %d", len(results))
 	}
 }
 
-func TestRankDiscoverTrials_RankedByValueScore(t *testing.T) {
+func TestRankDiscoverTrials_RankedByProfileMatch(t *testing.T) {
 	fri := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
 
 	trials := []discoverTrial{
@@ -473,16 +476,16 @@ func TestRankDiscoverTrials_RankedByValueScore(t *testing.T) {
 		{airport: "TLL", nights: 2}: {total: 50, name: "Hostel", rating: 4.5},
 		{airport: "NRT", nights: 2}: {total: 50, name: "Hostel2", rating: 3.0},
 	}
-	results := rankDiscoverTrials(trials, hotelResults, 500, "EUR", 5)
+	results := rankDiscoverTrials(trials, hotelResults, 500, "EUR", 5, nil)
 	if len(results) != 2 {
 		t.Fatalf("expected 2, got %d", len(results))
 	}
-	// Cheap trip (total=100) should have higher value score than expensive (total=450).
+	// Cheap trip (total=100) should have higher profile match than expensive (total=450).
 	if results[0].Destination != "Tallinn" {
-		t.Errorf("highest value = %q, want Tallinn", results[0].Destination)
+		t.Errorf("highest match = %q, want Tallinn", results[0].Destination)
 	}
-	if results[0].ValueScore <= results[1].ValueScore {
-		t.Errorf("Tallinn value (%v) should be > Tokyo value (%v)", results[0].ValueScore, results[1].ValueScore)
+	if results[0].ProfileMatch <= results[1].ProfileMatch {
+		t.Errorf("Tallinn match (%v) should be > Tokyo match (%v)", results[0].ProfileMatch, results[1].ProfileMatch)
 	}
 }
 
@@ -502,7 +505,7 @@ func TestRankDiscoverTrials_TopCap(t *testing.T) {
 			total: 50, name: "H", rating: 4.0,
 		}
 	}
-	results := rankDiscoverTrials(trials, hotelResults, 1000, "EUR", 3)
+	results := rankDiscoverTrials(trials, hotelResults, 1000, "EUR", 3, nil)
 	if len(results) != 3 {
 		t.Errorf("expected 3 (top cap), got %d", len(results))
 	}
@@ -520,13 +523,13 @@ func TestRankDiscoverTrials_ZeroRating(t *testing.T) {
 	hotelResults := map[discoverTrialKey]*discoverHotelInfo{
 		{airport: "RIX", nights: 2}: {total: 100, name: "Hotel", rating: 0},
 	}
-	results := rankDiscoverTrials(trials, hotelResults, 500, "EUR", 5)
+	results := rankDiscoverTrials(trials, hotelResults, 500, "EUR", 5, nil)
 	if len(results) != 1 {
 		t.Fatalf("expected 1, got %d", len(results))
 	}
-	// Zero rating -> quality = 0.5 (base).
-	if results[0].ValueScore <= 0 {
-		t.Errorf("value score = %v, want > 0 even with zero rating", results[0].ValueScore)
+	// Zero rating → other factors still apply; score should be > 0.
+	if results[0].ProfileMatch <= 0 {
+		t.Errorf("profile match = %v, want > 0 even with zero rating", results[0].ProfileMatch)
 	}
 }
 
@@ -542,7 +545,7 @@ func TestRankDiscoverTrials_FallbackCityName(t *testing.T) {
 	hotelResults := map[discoverTrialKey]*discoverHotelInfo{
 		{airport: "HEL", nights: 2}: {total: 100, name: "Hotel", rating: 4.0},
 	}
-	results := rankDiscoverTrials(trials, hotelResults, 500, "EUR", 5)
+	results := rankDiscoverTrials(trials, hotelResults, 500, "EUR", 5, nil)
 	if len(results) != 1 {
 		t.Fatalf("expected 1, got %d", len(results))
 	}
@@ -552,7 +555,7 @@ func TestRankDiscoverTrials_FallbackCityName(t *testing.T) {
 }
 
 func TestRankDiscoverTrials_EmptyTrials(t *testing.T) {
-	results := rankDiscoverTrials(nil, nil, 500, "EUR", 5)
+	results := rankDiscoverTrials(nil, nil, 500, "EUR", 5, nil)
 	if len(results) != 0 {
 		t.Errorf("expected 0 for nil trials, got %d", len(results))
 	}
@@ -561,7 +564,7 @@ func TestRankDiscoverTrials_EmptyTrials(t *testing.T) {
 func TestRankDiscoverTrials_BudgetFitClampedAtZero(t *testing.T) {
 	fri := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
 
-	// Total exactly at budget -> budgetFit=0 -> valueScore=0.
+	// Total exactly at budget -> budget_fit factor = 0, overall score is lower.
 	trials := []discoverTrial{
 		{
 			window: candidateWindow{start: fri, end: fri.AddDate(0, 0, 2), nights: 2},
@@ -571,12 +574,13 @@ func TestRankDiscoverTrials_BudgetFitClampedAtZero(t *testing.T) {
 	hotelResults := map[discoverTrialKey]*discoverHotelInfo{
 		{airport: "LIS", nights: 2}: {total: 100, name: "H", rating: 5.0},
 	}
-	results := rankDiscoverTrials(trials, hotelResults, 500, "EUR", 5)
+	results := rankDiscoverTrials(trials, hotelResults, 500, "EUR", 5, nil)
 	if len(results) != 1 {
 		t.Fatalf("expected 1, got %d", len(results))
 	}
-	if results[0].ValueScore != 0 {
-		t.Errorf("value score = %v, want 0 (at budget)", results[0].ValueScore)
+	// budget_fit is 0 but other neutral factors contribute; score is < 50.
+	if results[0].ProfileMatch >= 50 {
+		t.Errorf("profile match = %v, want < 50 when at budget (budget_fit=0)", results[0].ProfileMatch)
 	}
 	if results[0].BudgetSlack != 0 {
 		t.Errorf("slack = %v, want 0", results[0].BudgetSlack)

@@ -289,7 +289,7 @@ func TestBuildDiscoverReasoning(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildDiscoverReasoning(0, 0, tt.rating, tt.slack, tt.currency)
+			got := buildDiscoverReasoning(tt.rating, tt.slack, tt.currency)
 			if tt.wantSub != "" && !contains(got, tt.wantSub) {
 				t.Errorf("buildDiscoverReasoning() = %q, should contain %q", got, tt.wantSub)
 			}

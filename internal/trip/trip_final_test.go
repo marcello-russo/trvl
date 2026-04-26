@@ -666,21 +666,21 @@ func TestDiscoverOptions_NegativeTop(t *testing.T) {
 // ============================================================
 
 func TestBuildDiscoverReasoning_ZeroValues(t *testing.T) {
-	got := buildDiscoverReasoning(0, 0, 0, 0, "EUR")
+	got := buildDiscoverReasoning(0, 0, "EUR")
 	if got != "" {
 		t.Errorf("expected empty for zero values, got %q", got)
 	}
 }
 
 func TestBuildDiscoverReasoning_RatingOnly(t *testing.T) {
-	got := buildDiscoverReasoning(0, 0, 4.5, 0, "EUR")
+	got := buildDiscoverReasoning(4.5, 0, "EUR")
 	if got != "4.5★ hotel" {
 		t.Errorf("expected '4.5★ hotel', got %q", got)
 	}
 }
 
 func TestBuildDiscoverReasoning_BothValues(t *testing.T) {
-	got := buildDiscoverReasoning(0, 0, 3.8, 150, "USD")
+	got := buildDiscoverReasoning(3.8, 150, "USD")
 	if got == "" {
 		t.Error("expected non-empty reasoning")
 	}

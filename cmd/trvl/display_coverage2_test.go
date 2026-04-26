@@ -448,7 +448,7 @@ func TestPrintDiscoverTable_WithTrips(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		err := printDiscoverTable(out)
+		err := printDiscoverTable(out, false)
 		if err != nil {
 			t.Errorf("printDiscoverTable returned error: %v", err)
 		}
@@ -462,7 +462,6 @@ func TestPrintDiscoverTable_WithTrips(t *testing.T) {
 		"EUR 49",
 		"Hilton Tallinn Park",
 		"EUR 169",
-		"EUR 331",
 		"great value",
 		"Riga (RIX)",
 		"EUR 79",
@@ -486,7 +485,7 @@ func TestPrintDiscoverTable_NoTrips(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		err := printDiscoverTable(out)
+		err := printDiscoverTable(out, false)
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
