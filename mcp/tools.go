@@ -70,6 +70,7 @@ func registerTools(s *Server) {
 		checkWatchesTool(),
 		watchOpportunitiesTool(),
 		listOpportunityWatchesTool(),
+		searchHiddenCityTool(),
 	}
 	s.handlers["search_flights"] = s.wrapHandler(handleSearchFlights)
 	s.handlers["search_dates"] = s.wrapHandler(handleSearchDates)
@@ -127,6 +128,7 @@ func registerTools(s *Server) {
 	s.handlers["check_watches"] = s.wrapHandler(handleCheckWatches)
 	s.handlers["watch_opportunities"] = s.wrapHandler(handleWatchOpportunities)
 	s.handlers["list_opportunity_watches"] = s.wrapHandler(handleListOpportunityWatches)
+	s.handlers["search_hidden_city"] = s.wrapHandler(handleSearchHiddenCity)
 }
 
 // wrapHandler returns a ToolHandler that delegates to the inner handler and
