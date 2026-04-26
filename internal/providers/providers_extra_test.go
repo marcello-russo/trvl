@@ -18,6 +18,17 @@ func TestValidate_MissingID(t *testing.T) {
 	}
 }
 
+func TestValidate_InvalidID(t *testing.T) {
+	for _, id := range []string{"../prefs", "bad/id", `bad\id`, "-bad", ""} {
+		t.Run(id, func(t *testing.T) {
+			cfg := ProviderConfig{ID: id, Name: "x", Category: "hotel", Endpoint: "https://api.example.com/search", ResponseMapping: ResponseMapping{ResultsPath: "results"}}
+			if err := cfg.Validate(); err == nil {
+				t.Error("expected error for invalid ID")
+			}
+		})
+	}
+}
+
 func TestValidate_MissingName(t *testing.T) {
 	cfg := ProviderConfig{ID: "x", Category: "hotel", Endpoint: "https://api.example.com/search", ResponseMapping: ResponseMapping{ResultsPath: "results"}}
 	if err := cfg.Validate(); err == nil {
@@ -65,7 +76,7 @@ func TestValidate_NegativeRateLimit(t *testing.T) {
 		ID: "x", Name: "x", Category: "hotel",
 		Endpoint:        "https://api.example.com/search",
 		ResponseMapping: ResponseMapping{ResultsPath: "results"},
-		RateLimit:        RateLimitConfig{RequestsPerSecond: -1},
+		RateLimit:       RateLimitConfig{RequestsPerSecond: -1},
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Error("expected error for negative rate limit")
@@ -77,7 +88,7 @@ func TestValidate_ExcessiveRateLimit(t *testing.T) {
 		ID: "x", Name: "x", Category: "hotel",
 		Endpoint:        "https://api.example.com/search",
 		ResponseMapping: ResponseMapping{ResultsPath: "results"},
-		RateLimit:        RateLimitConfig{RequestsPerSecond: 200},
+		RateLimit:       RateLimitConfig{RequestsPerSecond: 200},
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Error("expected error for rate limit > 100")
@@ -89,7 +100,7 @@ func TestValidate_ValidConfig(t *testing.T) {
 		ID: "test", Name: "Test Provider", Category: "hotel",
 		Endpoint:        "https://api.example.com/search",
 		ResponseMapping: ResponseMapping{ResultsPath: "results"},
-		RateLimit:        RateLimitConfig{RequestsPerSecond: 5, Burst: 1},
+		RateLimit:       RateLimitConfig{RequestsPerSecond: 5, Burst: 1},
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("unexpected error for valid config: %v", err)
@@ -294,6 +305,59 @@ func TestRegistry_ReloadMissing(t *testing.T) {
 	_, err = reg.Reload("nonexistent")
 	if err == nil {
 		t.Error("Reload nonexistent should return error")
+	}
+}
+
+func TestRegistry_SaveRejectsPathTraversalID(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := NewRegistryAt(dir)
+	if err != nil {
+		t.Fatalf("NewRegistryAt: %v", err)
+	}
+	err = reg.Save(&ProviderConfig{
+		ID:              "../preferences",
+		Name:            "Bad",
+		Category:        "hotel",
+		Endpoint:        "https://api.example.com",
+		ResponseMapping: ResponseMapping{ResultsPath: "r"},
+	})
+	if err == nil {
+		t.Fatal("expected invalid ID error")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "..", "preferences.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("path traversal target exists or stat failed unexpectedly: %v", statErr)
+	}
+}
+
+func TestRegistry_SaveSecuresProviderFilePermissions(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := NewRegistryAt(dir)
+	if err != nil {
+		t.Fatalf("NewRegistryAt: %v", err)
+	}
+	cfg := &ProviderConfig{
+		ID:              "secure-test",
+		Name:            "Secure",
+		Category:        "hotel",
+		Endpoint:        "https://api.example.com",
+		ResponseMapping: ResponseMapping{ResultsPath: "r"},
+	}
+	if err := reg.Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat dir: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Fatalf("dir mode = %#o, want 0700", got)
+	}
+	info, err := os.Stat(filepath.Join(dir, "secure-test.json"))
+	if err != nil {
+		t.Fatalf("stat provider file: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("file mode = %#o, want 0600", got)
 	}
 }
 
@@ -875,8 +939,8 @@ func TestJsonPath_WildcardSegment(t *testing.T) {
 func TestJsonPath_ArrayTraversal(t *testing.T) {
 	data := map[string]any{
 		"sections": []any{
-			map[string]any{"listings": []any{}},           // empty
-			map[string]any{"listings": []any{"a", "b"}},   // non-empty
+			map[string]any{"listings": []any{}},         // empty
+			map[string]any{"listings": []any{"a", "b"}}, // non-empty
 		},
 	}
 	got := jsonPath(data, "sections.listings")

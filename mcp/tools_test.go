@@ -770,6 +770,7 @@ func TestIsLocalhostOrigin(t *testing.T) {
 		{"http://localhost:3000", true},
 		{"http://localhost:8080", true},
 		{"http://127.0.0.1:3000", true},
+		{"http://[::1]:3000", true},
 		{"https://evil.com", false},
 		{"", false},
 		{"http://example.com", false},

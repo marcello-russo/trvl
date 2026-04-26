@@ -286,11 +286,8 @@ func (rt *Runtime) SearchHotels(ctx context.Context, location string, lat, lon f
 	sem := make(chan struct{}, providerConcurrency())
 
 	for _, cfg := range providers {
-		// Circuit breaker: skip providers that have failed repeatedly
-		// without any recent success. Prevents wasting 15-30s on preflight
-		// + WAF recovery for providers that are consistently down.
-		if cfg.ErrorCount >= circuitBreakerThreshold && !cfg.LastSuccess.IsZero() &&
-			time.Since(cfg.LastSuccess) > circuitBreakerCooldown {
+		if cfg.ErrorCount >= circuitBreakerThreshold &&
+			(cfg.LastSuccess.IsZero() || time.Since(cfg.LastSuccess) > circuitBreakerCooldown) {
 			slog.Info("circuit breaker: skipping provider",
 				"provider", cfg.ID,
 				"errors", cfg.ErrorCount,
@@ -1180,4 +1177,3 @@ func (rt *Runtime) searchProvider(ctx context.Context, cfg *ProviderConfig, loca
 
 	return hotels, nil
 }
-

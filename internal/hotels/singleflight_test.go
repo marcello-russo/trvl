@@ -59,54 +59,30 @@ func TestHotelSingleflight(t *testing.T) {
 // TestHotelSearchKey verifies that different parameter combinations produce
 // distinct keys, preventing incorrect deduplication.
 func TestHotelSearchKey(t *testing.T) {
-	base := HotelSearchOptions{
-		CheckIn:          "2026-06-15",
-		CheckOut:         "2026-06-18",
-		Guests:           2,
-		Stars:            4,
-		Sort:             "price",
-		Currency:         "EUR",
-		MinPrice:         100,
-		MaxPrice:         250,
-		MinRating:        8.5,
-		MaxDistanceKm:    2,
-		Amenities:        []string{"pool", "wifi"},
-		CenterLat:        48.8566,
-		CenterLon:        2.3522,
-		EnrichAmenities:  true,
-		EnrichLimit:      5,
-		MaxPages:         2,
-		FreeCancellation: true,
-		PropertyType:     "hotel",
-		Brand:            "Hilton",
-		EcoCertified:     true,
-		MinBedrooms:      1,
-		MinBathrooms:     1,
-		MinBeds:          2,
-		RoomType:         "hotel_room",
-		Superhost:        true,
-		InstantBook:      true,
-		MaxDistanceM:     1500,
-		Sustainable:      true,
-		MealPlan:         true,
-		IncludeSoldOut:   true,
-	}
-	k1 := hotelSearchKey("Paris", base)
-	k2 := hotelSearchKey("Paris", HotelSearchOptions{
-		CheckIn:  "2026-06-16",
-		CheckOut: base.CheckOut,
-		Guests:   base.Guests,
-	}) // different check-in
-	k3 := hotelSearchKey("London", base)                                                                         // different city
-	k4 := hotelSearchKey("Paris", HotelSearchOptions{CheckIn: base.CheckIn, CheckOut: base.CheckOut, Guests: 3}) // different guests
-	k5 := hotelSearchKey("Paris", HotelSearchOptions{
-		CheckIn:  base.CheckIn,
-		CheckOut: base.CheckOut,
-		Guests:   base.Guests,
-		Stars:    5,
-	}) // different filter set
+	base := HotelSearchOptions{CheckIn: "2026-06-15", CheckOut: "2026-06-18", Guests: 2, Currency: "USD"}
+	changedCheckIn := base
+	changedCheckIn.CheckIn = "2026-06-16"
+	changedGuests := base
+	changedGuests.Guests = 3
+	changedCurrency := base
+	changedCurrency.Currency = "EUR"
+	changedStars := base
+	changedStars.Stars = 5
+	changedMaxPages := base
+	changedMaxPages.MaxPages = 1
+	changedFilter := base
+	changedFilter.MinPrice = 100
 
-	keys := []string{k1, k2, k3, k4, k5}
+	k1 := hotelSearchKey("Paris", base)
+	k2 := hotelSearchKey("Paris", changedCheckIn)
+	k3 := hotelSearchKey("London", base)
+	k4 := hotelSearchKey("Paris", changedGuests)
+	k5 := hotelSearchKey("Paris", changedCurrency)
+	k6 := hotelSearchKey("Paris", changedStars)
+	k7 := hotelSearchKey("Paris", changedMaxPages)
+	k8 := hotelSearchKey("Paris", changedFilter)
+
+	keys := []string{k1, k2, k3, k4, k5, k6, k7, k8}
 	for i := range keys {
 		for j := i + 1; j < len(keys); j++ {
 			if keys[i] == keys[j] {

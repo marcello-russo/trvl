@@ -55,6 +55,56 @@ func TestSearchHotelsProviderError(t *testing.T) {
 	}
 }
 
+func TestSearchHotelsCircuitBreaksNeverSuccessfulProvider(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		t.Error("circuit-broken provider should not be called")
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	reg, err := NewRegistryAt(dir)
+	if err != nil {
+		t.Fatalf("NewRegistryAt: %v", err)
+	}
+
+	cfg := &ProviderConfig{
+		ID:         "never-success",
+		Name:       "Never Success",
+		Category:   "hotels",
+		Endpoint:   srv.URL + "/search",
+		Method:     "GET",
+		ErrorCount: circuitBreakerThreshold,
+		ResponseMapping: ResponseMapping{
+			ResultsPath: "results",
+		},
+		RateLimit: RateLimitConfig{
+			RequestsPerSecond: 100,
+			Burst:             10,
+		},
+	}
+	if err := reg.Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	rt := NewRuntime(reg)
+	hotels, statuses, err := rt.SearchHotels(context.Background(), "Test", 0, 0, "2025-06-01", "2025-06-05", "USD", 2, nil)
+	if err != nil {
+		t.Fatalf("SearchHotels: %v", err)
+	}
+	if len(hotels) != 0 {
+		t.Fatalf("hotels = %d, want 0", len(hotels))
+	}
+	if len(statuses) != 0 {
+		t.Fatalf("statuses = %d, want 0", len(statuses))
+	}
+	if calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", calls)
+	}
+}
+
 func TestSearchHotelsContextCanceled(t *testing.T) {
 	dir := t.TempDir()
 	reg, err := NewRegistryAt(dir)
@@ -471,4 +521,3 @@ func TestRunPreflight_POST(t *testing.T) {
 		t.Errorf("name = %q, want 'Token Hotel'", hotels[0].Name)
 	}
 }
-

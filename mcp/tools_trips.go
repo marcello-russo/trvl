@@ -122,8 +122,8 @@ func createTripTool() ToolDef {
 		},
 		Annotations: &ToolAnnotations{
 			Title:          "Create Trip",
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
+			ReadOnlyHint:   false,
+			IdempotentHint: false,
 		},
 	}
 }
@@ -159,8 +159,8 @@ func addTripLegTool() ToolDef {
 		},
 		Annotations: &ToolAnnotations{
 			Title:          "Add Trip Leg",
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
+			ReadOnlyHint:   false,
+			IdempotentHint: false,
 		},
 	}
 }
@@ -192,8 +192,8 @@ func markTripBookedTool() ToolDef {
 		},
 		Annotations: &ToolAnnotations{
 			Title:          "Mark Trip Booked",
-			ReadOnlyHint:   true,
-			IdempotentHint: true,
+			ReadOnlyHint:   false,
+			IdempotentHint: false,
 		},
 	}
 }
@@ -400,8 +400,8 @@ func exportICSTool() ToolDef {
 		OutputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"ics":        schemaString(),
-				"trip_name":  schemaString(),
+				"ics":         schemaString(),
+				"trip_name":   schemaString(),
 				"event_count": schemaInt(),
 			},
 		},

@@ -11,6 +11,8 @@ import (
 	"github.com/MikkoParkkola/trvl/internal/profile"
 )
 
+var searchHotelsFunc = hotels.SearchHotels
+
 // --- Output schema builders ---
 
 // hotelSearchOutputSchema returns the JSON Schema for HotelSearchResult.
@@ -23,18 +25,18 @@ func hotelSearchOutputSchema() interface{} {
 			"hotels": schemaArray(map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"name":         schemaString(),
-					"hotel_id":     schemaString(),
-					"rating":       schemaNum(),
-					"review_count": schemaInt(),
-					"stars":        schemaInt(),
-					"price":        schemaNum(),
-					"currency":     schemaString(),
-					"address":      schemaString(),
-					"lat":          schemaNum(),
-					"lon":          schemaNum(),
-					"booking_url":  schemaString(),
-					"amenities":    schemaStringArray(),
+					"name":            schemaString(),
+					"hotel_id":        schemaString(),
+					"rating":          schemaNum(),
+					"review_count":    schemaInt(),
+					"stars":           schemaInt(),
+					"price":           schemaNum(),
+					"currency":        schemaString(),
+					"address":         schemaString(),
+					"lat":             schemaNum(),
+					"lon":             schemaNum(),
+					"booking_url":     schemaString(),
+					"amenities":       schemaStringArray(),
 					"eco_certified":   schemaBool(),
 					"savings":         schemaNumDesc("Price savings vs most expensive source"),
 					"cheapest_source": schemaStringDesc("Provider with lowest price"),
@@ -102,6 +104,7 @@ func searchHotelsTool() ToolDef {
 				"check_in":          {Type: "string", Description: "Check-in date in YYYY-MM-DD format"},
 				"check_out":         {Type: "string", Description: "Check-out date in YYYY-MM-DD format"},
 				"guests":            {Type: "integer", Description: "Number of guests (default: 2)"},
+				"currency":          {Type: "string", Description: "Currency code (e.g. USD, EUR). Defaults to display_currency preference, then USD"},
 				"stars":             {Type: "integer", Description: "Minimum star rating 1-5 (default: no filter)"},
 				"sort":              {Type: "string", Description: "Sort order: price, rating, distance, or stars (default: price)"},
 				"min_price":         {Type: "number", Description: "Minimum price per night (default: no filter)"},
@@ -192,6 +195,11 @@ func handleSearchHotels(ctx context.Context, args map[string]any, elicit ElicitF
 	// Load preferences early — used for guest count default and filter overrides.
 	prefs, _ := preferences.Load()
 
+	currency := strings.ToUpper(argString(args, "currency"))
+	if currency == "" && prefs != nil {
+		currency = strings.ToUpper(prefs.DisplayCurrency)
+	}
+
 	// Determine guest count: use the caller's explicit value, or fall back to
 	// DefaultCompanions + 1 (companions + the user), or the tool default (2).
 	guests := argInt(args, "guests", 0)
@@ -208,6 +216,7 @@ func handleSearchHotels(ctx context.Context, args map[string]any, elicit ElicitF
 		CheckIn:          checkIn,
 		CheckOut:         checkOut,
 		Guests:           guests,
+		Currency:         currency,
 		Stars:            argInt(args, "stars", 0),
 		Sort:             argString(args, "sort"),
 		MinPrice:         argFloat(args, "min_price", 0),
@@ -269,7 +278,7 @@ func handleSearchHotels(ctx context.Context, args map[string]any, elicit ElicitF
 		}
 	}
 
-	result, err := hotels.SearchHotels(ctx, location, opts)
+	result, err := searchHotelsFunc(ctx, location, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -649,4 +658,3 @@ func handleHotelRooms(ctx context.Context, args map[string]any, elicit ElicitFun
 
 	return content, availability, nil
 }
-

@@ -2,6 +2,7 @@ package hotels
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -175,42 +176,81 @@ const pageSize = 20
 // Known values: 3=highest rated, 4=most reviewed, 8=price low-to-high.
 var googleSortOrders = []string{"", "3", "8"}
 
-// hotelSearchKey builds a singleflight dedup key from the search parameters.
+// hotelSearchKey builds a singleflight dedup key from every option that can
+// affect fetched, enriched, or post-filtered hotel results.
 func hotelSearchKey(location string, opts HotelSearchOptions) string {
-	return strings.Join([]string{
-		"hotel",
-		location,
-		opts.CheckIn,
-		opts.CheckOut,
-		strconv.Itoa(opts.Guests),
-		strconv.Itoa(opts.Stars),
-		opts.Sort,
-		opts.Currency,
-		strconv.FormatFloat(opts.MinPrice, 'f', -1, 64),
-		strconv.FormatFloat(opts.MaxPrice, 'f', -1, 64),
-		strconv.FormatFloat(opts.MinRating, 'f', -1, 64),
-		strconv.FormatFloat(opts.MaxDistanceKm, 'f', -1, 64),
-		hotelKeyStringSlice(normalizeHotelAmenityFilters(opts.Amenities)),
-		strconv.FormatFloat(opts.CenterLat, 'f', 6, 64),
-		strconv.FormatFloat(opts.CenterLon, 'f', 6, 64),
-		strconv.FormatBool(opts.EnrichAmenities),
-		strconv.Itoa(opts.EnrichLimit),
-		strconv.Itoa(hotelPageLimit(opts.MaxPages)),
-		strconv.FormatBool(opts.FreeCancellation),
-		opts.PropertyType,
-		strings.ToLower(strings.TrimSpace(opts.Brand)),
-		strconv.FormatBool(opts.EcoCertified),
-		strconv.Itoa(opts.MinBedrooms),
-		strconv.Itoa(opts.MinBathrooms),
-		strconv.Itoa(opts.MinBeds),
-		opts.RoomType,
-		strconv.FormatBool(opts.Superhost),
-		strconv.FormatBool(opts.InstantBook),
-		strconv.Itoa(opts.MaxDistanceM),
-		strconv.FormatBool(opts.Sustainable),
-		strconv.FormatBool(opts.MealPlan),
-		strconv.FormatBool(opts.IncludeSoldOut),
-	}, "|")
+	amenities := append([]string(nil), opts.Amenities...)
+	sort.Strings(amenities)
+	key := struct {
+		Location         string   `json:"location"`
+		CheckIn          string   `json:"check_in"`
+		CheckOut         string   `json:"check_out"`
+		Guests           int      `json:"guests"`
+		Stars            int      `json:"stars"`
+		Sort             string   `json:"sort"`
+		Currency         string   `json:"currency"`
+		MinPrice         float64  `json:"min_price"`
+		MaxPrice         float64  `json:"max_price"`
+		MinRating        float64  `json:"min_rating"`
+		MaxDistanceKm    float64  `json:"max_distance_km"`
+		Amenities        []string `json:"amenities,omitempty"`
+		CenterLat        float64  `json:"center_lat"`
+		CenterLon        float64  `json:"center_lon"`
+		EnrichAmenities  bool     `json:"enrich_amenities"`
+		EnrichLimit      int      `json:"enrich_limit"`
+		MaxPages         int      `json:"max_pages"`
+		FreeCancellation bool     `json:"free_cancellation"`
+		PropertyType     string   `json:"property_type"`
+		Brand            string   `json:"brand"`
+		EcoCertified     bool     `json:"eco_certified"`
+		MinBedrooms      int      `json:"min_bedrooms"`
+		MinBathrooms     int      `json:"min_bathrooms"`
+		MinBeds          int      `json:"min_beds"`
+		RoomType         string   `json:"room_type"`
+		Superhost        bool     `json:"superhost"`
+		InstantBook      bool     `json:"instant_book"`
+		MaxDistanceM     int      `json:"max_distance_m"`
+		Sustainable      bool     `json:"sustainable"`
+		MealPlan         bool     `json:"meal_plan"`
+		IncludeSoldOut   bool     `json:"include_sold_out"`
+	}{
+		Location:         location,
+		CheckIn:          opts.CheckIn,
+		CheckOut:         opts.CheckOut,
+		Guests:           opts.Guests,
+		Stars:            opts.Stars,
+		Sort:             opts.Sort,
+		Currency:         opts.Currency,
+		MinPrice:         opts.MinPrice,
+		MaxPrice:         opts.MaxPrice,
+		MinRating:        opts.MinRating,
+		MaxDistanceKm:    opts.MaxDistanceKm,
+		Amenities:        amenities,
+		CenterLat:        opts.CenterLat,
+		CenterLon:        opts.CenterLon,
+		EnrichAmenities:  opts.EnrichAmenities,
+		EnrichLimit:      opts.EnrichLimit,
+		MaxPages:         opts.MaxPages,
+		FreeCancellation: opts.FreeCancellation,
+		PropertyType:     opts.PropertyType,
+		Brand:            opts.Brand,
+		EcoCertified:     opts.EcoCertified,
+		MinBedrooms:      opts.MinBedrooms,
+		MinBathrooms:     opts.MinBathrooms,
+		MinBeds:          opts.MinBeds,
+		RoomType:         opts.RoomType,
+		Superhost:        opts.Superhost,
+		InstantBook:      opts.InstantBook,
+		MaxDistanceM:     opts.MaxDistanceM,
+		Sustainable:      opts.Sustainable,
+		MealPlan:         opts.MealPlan,
+		IncludeSoldOut:   opts.IncludeSoldOut,
+	}
+	data, err := json.Marshal(key)
+	if err != nil {
+		return fmt.Sprintf("hotel|%s|%s|%s|%d|%s", location, opts.CheckIn, opts.CheckOut, opts.Guests, opts.Currency)
+	}
+	return "hotel|" + string(data)
 }
 
 func hotelPageLimit(requested int) int {
@@ -219,26 +259,6 @@ func hotelPageLimit(requested int) int {
 		pageLimit = requested
 	}
 	return pageLimit
-}
-
-func normalizeHotelAmenityFilters(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	normalized := make([]string, 0, len(values))
-	for _, value := range values {
-		normalized = append(normalized, strings.ToLower(strings.TrimSpace(value)))
-	}
-	return normalized
-}
-
-func hotelKeyStringSlice(values []string) string {
-	if len(values) == 0 {
-		return ""
-	}
-	sorted := append([]string(nil), values...)
-	sort.Strings(sorted)
-	return strings.Join(sorted, ",")
 }
 
 // SearchHotelsWithClient is like SearchHotels but reuses the provided client.
@@ -252,6 +272,8 @@ func SearchHotelsWithClient(ctx context.Context, client *batchexec.Client, locat
 	}
 	if opts.Currency == "" {
 		opts.Currency = "USD" // Google's default when no currency specified
+	} else {
+		opts.Currency = strings.ToUpper(opts.Currency)
 	}
 
 	// Validate dates.

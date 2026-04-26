@@ -1,27 +1,54 @@
 package mcp
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
+const defaultHTTPHost = "127.0.0.1"
+
 // HTTPServer wraps an MCP Server with an HTTP transport.
 type HTTPServer struct {
 	server *Server
+	host   string
 	port   int
+	token  string
+}
+
+// HTTPServerOptions configures the HTTP MCP transport.
+type HTTPServerOptions struct {
+	Host  string
+	Port  int
+	Token string
 }
 
 // NewHTTPServer creates an HTTP transport for the MCP server on the given port.
 func NewHTTPServer(port int) *HTTPServer {
+	return NewHTTPServerWithOptions(HTTPServerOptions{Host: defaultHTTPHost, Port: port})
+}
+
+// NewHTTPServerWithOptions creates an HTTP transport for the MCP server.
+func NewHTTPServerWithOptions(opts HTTPServerOptions) *HTTPServer {
+	host := strings.TrimSpace(opts.Host)
+	if host == "" {
+		host = defaultHTTPHost
+	}
 	return &HTTPServer{
 		server: NewServer(),
-		port:   port,
+		host:   host,
+		port:   opts.Port,
+		token:  strings.TrimSpace(opts.Token),
 	}
 }
 
@@ -34,8 +61,8 @@ func (h *HTTPServer) ListenAndServe() error {
 	mux.HandleFunc("/mcp", h.handleMCP)
 	mux.HandleFunc("/health", h.handleHealth)
 
-	addr := fmt.Sprintf(":%d", h.port)
-	log.Printf("trvl MCP server listening on http://localhost%s/mcp", addr)
+	addr := net.JoinHostPort(h.host, strconv.Itoa(h.port))
+	log.Printf("trvl MCP server listening on http://%s/mcp", addr)
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      mux,
@@ -53,10 +80,15 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 	}
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if !h.authorize(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -97,6 +129,18 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func (h *HTTPServer) authorize(r *http.Request) bool {
+	if h.token == "" {
+		return true
+	}
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	const prefix = "Bearer "
+	if !strings.HasPrefix(auth, prefix) {
+		return false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(auth, prefix)) == h.token
+}
+
 func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -116,14 +160,47 @@ func isLocalhostOrigin(origin string) bool {
 	if err != nil {
 		return false
 	}
-	host := strings.Split(u.Host, ":")[0]
-	return host == "localhost" || host == "127.0.0.1" || host == "[::1]"
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
-// RunHTTP starts the MCP server in HTTP mode on the given port.
+// RunHTTP starts the MCP server in HTTP mode on the given host and port.
 //
 // Coverage exclusion: blocking HTTP server entry point.
 // Calls ListenAndServe, whose handler logic is tested via httptest in server_extra_test.go.
-func RunHTTP(port int) error {
-	return NewHTTPServer(port).ListenAndServe()
+func RunHTTP(host string, port int, token string) error {
+	generatedToken := false
+	if strings.TrimSpace(token) == "" {
+		token = strings.TrimSpace(os.Getenv("TRVL_MCP_TOKEN"))
+	}
+	if strings.TrimSpace(token) == "" {
+		generated, err := generateMCPToken()
+		if err != nil {
+			return fmt.Errorf("generate MCP HTTP token: %w", err)
+		}
+		token = generated
+		generatedToken = true
+	}
+	if generatedToken {
+		log.Printf("trvl MCP generated HTTP bearer token: %s", token)
+	} else {
+		log.Printf("trvl MCP HTTP auth enabled")
+	}
+	return NewHTTPServerWithOptions(HTTPServerOptions{
+		Host:  host,
+		Port:  port,
+		Token: token,
+	}).ListenAndServe()
+}
+
+func generateMCPToken() (string, error) {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:]), nil
 }

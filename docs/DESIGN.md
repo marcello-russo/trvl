@@ -185,7 +185,7 @@ Token bucket: 10 requests/second (matching fli's rate limit). Configurable via `
 
 Two transport modes:
 - **stdio**: `trvl mcp` — for Claude Code integration
-- **HTTP**: `trvl mcp --http --port 8000` — for gateway and remote use
+- **HTTP**: `trvl mcp --http --port 8000` — loopback by default with bearer-token auth; pass `--host` explicitly for gateway or remote use
 
 Four tools exposed:
 1. `search_flights` — search flights on a date
@@ -346,7 +346,7 @@ trvl prices <hotel_id> --checkin 2026-05-15 --checkout 2026-05-18
 trvl mcp
 
 # HTTP mode (for gateway)
-trvl mcp --http --port 8000
+TRVL_MCP_TOKEN="$(openssl rand -base64 32)" trvl mcp --http --host 127.0.0.1 --port 8000
 ```
 
 ## 8. Acceptance Criteria
