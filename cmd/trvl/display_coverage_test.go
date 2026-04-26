@@ -92,7 +92,7 @@ func TestPrintFlightsTable_Success(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		err := printFlightsTable(context.Background(), "HEL", "AMS", "", result)
+		err := printFlightsTable(context.Background(), "HEL", "AMS", "", result, false)
 		if err != nil {
 			t.Errorf("printFlightsTable returned error: %v", err)
 		}
@@ -116,7 +116,7 @@ func TestPrintFlightsTable_NoFlights(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		err := printFlightsTable(context.Background(), "HEL", "NRT", "", result)
+		err := printFlightsTable(context.Background(), "HEL", "NRT", "", result, false)
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -137,7 +137,7 @@ func TestPrintFlightsTable_Failed(t *testing.T) {
 
 	out := captureStdout(t, func() {
 		// Also writes to stderr, but we just check no panic and it runs.
-		_ = printFlightsTable(context.Background(), "HEL", "NRT", "", result)
+		_ = printFlightsTable(context.Background(), "HEL", "NRT", "", result, false)
 	})
 	// The error goes to stderr, stdout may be empty. Just verify no panic.
 	_ = out
@@ -180,7 +180,7 @@ func TestPrintFlightsTable_WithSelfConnect(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		_ = printFlightsTable(context.Background(), "HEL", "BCN", "", result)
+		_ = printFlightsTable(context.Background(), "HEL", "BCN", "", result, false)
 	})
 
 	if !strings.Contains(out, "self-connect") {
@@ -215,7 +215,7 @@ func TestPrintFlightsTable_WithProvider(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		_ = printFlightsTable(context.Background(), "HEL", "AMS", "", result)
+		_ = printFlightsTable(context.Background(), "HEL", "AMS", "", result, false)
 	})
 
 	if !strings.Contains(out, "Kiwi") {
@@ -256,7 +256,7 @@ func TestFormatHotelsTable_Success(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		err := formatHotelsTable(context.Background(), "", result)
+		err := formatHotelsTable(context.Background(), "", "", result, false)
 		if err != nil {
 			t.Errorf("formatHotelsTable returned error: %v", err)
 		}
@@ -279,7 +279,7 @@ func TestFormatHotelsTable_Empty(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		err := formatHotelsTable(context.Background(), "", result)
+		err := formatHotelsTable(context.Background(), "", "", result, false)
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -310,7 +310,7 @@ func TestFormatHotelsTable_WithSources(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		_ = formatHotelsTable(context.Background(), "", result)
+		_ = formatHotelsTable(context.Background(), "", "", result, false)
 	})
 
 	// Should show Sources column since booking != Google.
@@ -336,7 +336,7 @@ func TestFormatHotelsTable_TotalAvailable(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		_ = formatHotelsTable(context.Background(), "", result)
+		_ = formatHotelsTable(context.Background(), "", "", result, false)
 	})
 
 	if !strings.Contains(out, "Showing 1 of 50") {

@@ -224,7 +224,7 @@ func TestPrintTripCostTable_FailedResult(t *testing.T) {
 	defer func() { os.Stdout = old }()
 
 	result := &trip.TripCostResult{Success: false, Error: "test failure"}
-	err := printTripCostTable(result, "HEL", "BCN", 1)
+	err := printTripCostTable(result, "HEL", "BCN", 1, false)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestPrintTripCostTable_SuccessWithWarning(t *testing.T) {
 		PerDay:    103,
 		Nights:    7,
 	}
-	err := printTripCostTable(result, "HEL", "BCN", 1)
+	err := printTripCostTable(result, "HEL", "BCN", 1, false)
 	w.Close()
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -278,7 +278,7 @@ func TestPrintOptimizeResults_Empty(t *testing.T) {
 		Success: true,
 		Options: nil,
 	}
-	printOptimizeResults(result)
+	printOptimizeResults(result, "", nil, false)
 	w.Close()
 
 	var buf bytes.Buffer
@@ -318,7 +318,7 @@ func TestPrintOptimizeResults_WithOptions(t *testing.T) {
 			Currency:  "EUR",
 		},
 	}
-	printOptimizeResults(result)
+	printOptimizeResults(result, "", nil, false)
 	w.Close()
 
 	var buf bytes.Buffer
@@ -342,7 +342,7 @@ func TestPrintOptimizeResults_BaselineCheapest(t *testing.T) {
 		},
 		Baseline: &optimizer.BookingOption{AllInCost: 200, Currency: "EUR"},
 	}
-	printOptimizeResults(result)
+	printOptimizeResults(result, "", nil, false)
 	w.Close()
 
 	var buf bytes.Buffer

@@ -928,7 +928,7 @@ func TestMaybeShowFlightHackTips_SingleFlight(t *testing.T) {
 func TestFormatHotelsTable_NoHotels(t *testing.T) {
 	models.UseColor = false
 	out := captureStdoutMax(t, func() {
-		_ = formatHotelsTable(context.Background(), "", &models.HotelSearchResult{})
+		_ = formatHotelsTable(context.Background(), "", "", &models.HotelSearchResult{}, false)
 	})
 	if !strings.Contains(out, "No hotels found") {
 		t.Errorf("expected 'No hotels found', got %q", out)
@@ -966,7 +966,7 @@ func TestFormatHotelsTable_WithHotels(t *testing.T) {
 		},
 	}
 	out := captureStdoutMax(t, func() {
-		_ = formatHotelsTable(context.Background(), "", result)
+		_ = formatHotelsTable(context.Background(), "", "", result, false)
 	})
 	if !strings.Contains(out, "Showing 2 of 5 hotels") {
 		t.Error("expected 'Showing 2 of 5 hotels'")

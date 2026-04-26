@@ -18,6 +18,7 @@ import (
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/points"
 	"github.com/MikkoParkkola/trvl/internal/preferences"
+	"github.com/MikkoParkkola/trvl/internal/scoring"
 	"github.com/spf13/cobra"
 )
 
@@ -32,6 +33,7 @@ func flightsCmd() *cobra.Command {
 		format         string
 		targetCurrency string
 		compareCabins  bool
+		explain        bool
 	)
 
 	cmd := &cobra.Command{
@@ -127,7 +129,7 @@ Examples:
 				return models.FormatJSON(os.Stdout, result)
 			}
 
-			if err := printFlightsTable(cmd.Context(), strings.Join(origins, ","), strings.Join(destinations, ","), targetCurrency, result); err != nil {
+			if err := printFlightsTable(cmd.Context(), strings.Join(origins, ","), strings.Join(destinations, ","), targetCurrency, result, explain); err != nil {
 				return err
 			}
 
@@ -151,6 +153,7 @@ Examples:
 	cmd.Flags().StringVar(&format, "format", "table", "Output format: table, json")
 	cmd.Flags().StringVar(&targetCurrency, "currency", "", "Convert prices to this currency (e.g. EUR, USD). Empty = show API default")
 	cmd.Flags().BoolVar(&compareCabins, "compare-cabins", false, "Compare prices across all cabin classes (economy, premium, business, first)")
+	cmd.Flags().BoolVar(&explain, "explain", false, "Show per-factor profile match breakdown for each result")
 
 	cmd.ValidArgsFunction = airportCompletion
 
@@ -159,7 +162,7 @@ Examples:
 
 // printFlightsTable renders flight results as an ASCII table.
 // If targetCurrency is set and differs from API currency, converts prices.
-func printFlightsTable(ctx context.Context, origin, destination, targetCurrency string, result *models.FlightSearchResult) error {
+func printFlightsTable(ctx context.Context, origin, destination, targetCurrency string, result *models.FlightSearchResult, explain bool) error {
 	if !result.Success {
 		fmt.Fprintf(os.Stderr, "Search failed: %s\n", result.Error)
 		return nil
@@ -332,6 +335,32 @@ func printFlightsTable(ctx context.Context, origin, destination, targetCurrency 
 			printMilesEarning(prefs, origin, destination, cheapest)
 		}
 	}
+
+	// --explain: per-flight profile match breakdown.
+	if explain {
+		fmt.Println()
+		// Determine primary destination IATA for scoring (first element if multi-airport).
+		destCode := destination
+		if idx := strings.Index(destination, ","); idx >= 0 {
+			destCode = destination[:idx]
+		}
+		for i, f := range result.Flights {
+			matchScore, breakdown := scoring.ComputeProfileMatch(prefs, scoring.DiscoverInput{
+				AirportCode:  destCode,
+				FlightPrice:  f.Price,
+				Total:        f.Price,
+				Stops:        f.Stops,
+				DepartTime:   flightDepartHHMM(f),
+				AirlineCodes: flightAirlineCodes(f),
+			})
+			label := fmt.Sprintf("#%d", i+1)
+			if len(f.Legs) > 0 && f.Legs[0].Airline != "" {
+				label = fmt.Sprintf("#%d %s", i+1, f.Legs[0].Airline)
+			}
+			printMatchBreakdown(label, matchScore, breakdown)
+		}
+	}
+
 	return nil
 }
 
@@ -625,4 +654,39 @@ func hackTypeLabel(t string) string {
 	default:
 		return strings.ReplaceAll(t, "_", " ")
 	}
+}
+
+// flightDepartHHMM extracts the "HH:MM" clock time from the first leg's
+// DepartureTime, which may be "2006-01-02T15:04" or similar ISO-ish formats.
+func flightDepartHHMM(f models.FlightResult) string {
+	if len(f.Legs) == 0 {
+		return ""
+	}
+	dt := f.Legs[0].DepartureTime
+	// ISO datetime: "2026-06-15T06:55" or "2026-06-15T06:55:00"
+	if len(dt) >= len("2006-01-02T15:04") {
+		clock := dt[len("2006-01-02T"):]
+		if len(clock) > 5 {
+			clock = clock[:5]
+		}
+		return clock
+	}
+	// Already HH:MM.
+	if len(dt) == 5 && dt[2] == ':' {
+		return dt
+	}
+	return ""
+}
+
+// flightAirlineCodes returns the unique IATA airline codes across all legs.
+func flightAirlineCodes(f models.FlightResult) []string {
+	seen := make(map[string]bool, len(f.Legs))
+	codes := make([]string, 0, len(f.Legs))
+	for _, leg := range f.Legs {
+		if leg.AirlineCode != "" && !seen[leg.AirlineCode] {
+			seen[leg.AirlineCode] = true
+			codes = append(codes, leg.AirlineCode)
+		}
+	}
+	return codes
 }
