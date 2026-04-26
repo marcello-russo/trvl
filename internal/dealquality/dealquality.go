@@ -1,12 +1,5 @@
-// Package dealquality computes a 0..100 score that quantifies how good
-// an offered price is relative to recent history for the same route +
-// season. Used by the opportunity watcher (MIK-3065) to fire only on
-// genuine deals (filter out routine prices that the user doesn't want
-// pinged about).
-//
-// The scoring is intentionally simple — empirical CDF over a 90-day
-// rolling window per route+season+kind — so it stays explainable and
-// resists the obvious failure mode of overfitting tiny samples.
+// Package dealquality scores how good a travel deal is relative to historical prices.
+// All scoring is pure (no I/O in scoring functions). Store provides persistence.
 package dealquality
 
 import (
@@ -14,288 +7,341 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
 
-// Sample is one observed price point. Route is "ORIG-DEST" (IATA codes
-// for flights, city slugs for hotels — opaque to this package). Kind is
-// "flight" or "hotel" so the percentiles never mix the two markets.
+const historyLayout = "2006-01-02"
+
+// Sample is one observed price for a route+season.
 type Sample struct {
-	Route     string    `json:"route"`
-	Kind      string    `json:"kind"`
-	Date      string    `json:"date"` // ISO 8601 calendar date of the trip
-	Price     float64   `json:"price"`
-	Currency  string    `json:"currency"`
-	Season    string    `json:"season"` // "Q1".."Q4"
-	Timestamp time.Time `json:"ts"`     // when we observed this price
+	Route  string  `json:"route"`  // "HEL-BCN" (sorted IATA pair, uppercase)
+	Season string  `json:"season"` // "Q1", "Q2", "Q3", "Q4"
+	Date   string  `json:"date"`   // YYYY-MM-DD of observation
+	Price  float64 `json:"price"`  // price in any consistent currency
+	Kind   string  `json:"kind"`   // "flight" or "hotel"
 }
 
-// Score is the computed deal-quality verdict for one priced offer.
+// Score holds the result of a DealQuality computation.
 type Score struct {
-	// Total is 0..100. 95-100 = unicorn (≤p10), 80-95 = excellent (≤p20),
-	// 50-80 = average (≤p50), <50 = above-median (linear ramp to 0).
-	Total int
-	// Reason describes the classification in human-readable form.
-	Reason string
-	// Samples is the count of samples that backed the percentile bucket.
-	// Sparse data (<10) forces a neutral score regardless of price.
-	Samples int
-	// P10/P20/P50 are the percentile thresholds derived from the matching
-	// samples. Zero when Samples < 10.
-	P10, P20, P50 float64
+	Total   int     // 0-100
+	Reason  string  // e.g. "price_at_p08" or "insufficient_history"
+	Samples int     // how many historical samples were used
+	P10     float64 // 10th-percentile price (0 if insufficient)
+	P20     float64 // 20th-percentile price
+	P50     float64 // median price
 }
 
-// Constants chosen to match the AC bands (≤p10 → 95-100, ≤p20 → 80-95,
-// ≤p50 → 50-80, >p50 → ramp to 0).
-const (
-	// MinSamplesForScoring is the minimum sample count required before
-	// we trust the percentiles. Below this we return a neutral 50.
-	MinSamplesForScoring = 10
-	// HistoryWindowDays is how far back we keep samples in memory and
-	// on disk. Older samples are pruned at every Append call.
-	HistoryWindowDays = 90
-	// neutralScore is returned when sample count is below the threshold.
-	neutralScore = 50
-)
-
-// SeasonOf returns the calendar quarter ("Q1".."Q4") for the given date.
-// Pure helper exposed for tests and CLI use.
-func SeasonOf(t time.Time) string {
-	switch m := t.Month(); {
-	case m <= time.March:
+// SeasonOf returns "Q1"/"Q2"/"Q3"/"Q4" for a YYYY-MM-DD date string.
+// Returns "Q1" for unparseable dates.
+func SeasonOf(date string) string {
+	t, err := time.Parse(historyLayout, date)
+	if err != nil {
 		return "Q1"
-	case m <= time.June:
+	}
+	switch (int(t.Month()) - 1) / 3 {
+	case 0:
+		return "Q1"
+	case 1:
 		return "Q2"
-	case m <= time.September:
+	case 2:
 		return "Q3"
 	default:
 		return "Q4"
 	}
 }
 
-// Score classifies `price` against `samples` (which the caller is
-// responsible for pre-filtering to the right route+season+kind). The
-// pure function — no I/O — so it stays cheap to call inline on every
-// returned result.
-func ScoreAgainst(price float64, samples []float64) Score {
-	if len(samples) < MinSamplesForScoring {
-		return Score{Total: neutralScore, Reason: "insufficient history", Samples: len(samples)}
+// RouteKey returns a canonical "ORG-DST" key: sorted alphabetically, uppercase.
+func RouteKey(a, b string) string {
+	a = strings.ToUpper(strings.TrimSpace(a))
+	b = strings.ToUpper(strings.TrimSpace(b))
+	if a > b {
+		a, b = b, a
 	}
-	sorted := make([]float64, len(samples))
-	copy(sorted, samples)
-	sort.Float64s(sorted)
-	p10 := percentile(sorted, 0.10)
-	p20 := percentile(sorted, 0.20)
-	p50 := percentile(sorted, 0.50)
+	return a + "-" + b
+}
 
-	out := Score{Samples: len(sorted), P10: p10, P20: p20, P50: p50}
+// ScoreAgainst computes DealQuality 0-100 for a given price against historical samples.
+//
+// Scoring bands:
+//
+//	price ≤ p10 → 95-100 (lerp)
+//	price ≤ p20 → 80-95 (lerp)
+//	price ≤ p50 → 50-80 (lerp)
+//	price > p50 → ramp linearly to 0 at 2×p50; clamp to 0 below that
+//
+// Sparse (<10 samples): returns Score{Total: 50, Reason: "insufficient_history", Samples: n}.
+func ScoreAgainst(price float64, samples []Sample) Score {
+	n := len(samples)
+	if n < 10 {
+		return Score{Total: 50, Reason: "insufficient_history", Samples: n}
+	}
+
+	prices := make([]float64, 0, n)
+	for _, s := range samples {
+		prices = append(prices, s.Price)
+	}
+	sort.Float64s(prices)
+
+	p10 := percentile(prices, 10)
+	p20 := percentile(prices, 20)
+	p50 := percentile(prices, 50)
+
+	var total int
+	var reason string
+
 	switch {
 	case price <= p10:
-		// 95..100; lower price scores higher. Anchor: at p10 exactly → 95;
-		// price → 0 → 100.
-		out.Total = lerp(price, p10, 0, 95, 100)
-		out.Reason = fmt.Sprintf("unicorn deal — price ≤ p10 (%.0f vs %.0f)", price, p10)
+		total = lerp(p10, 95, 100, price, p10)
+		// price at or below p10 → find approximate percentile for reason
+		pct := pricePercentile(prices, price)
+		reason = fmt.Sprintf("price_at_p%02d", pct)
 	case price <= p20:
-		out.Total = lerp(price, p20, p10, 80, 95)
-		out.Reason = fmt.Sprintf("excellent deal — price ≤ p20 (%.0f vs %.0f)", price, p20)
+		total = lerp(p20, 80, 95, price, p10)
+		pct := pricePercentile(prices, price)
+		reason = fmt.Sprintf("price_at_p%02d", pct)
 	case price <= p50:
-		out.Total = lerp(price, p50, p20, 50, 80)
-		out.Reason = fmt.Sprintf("good deal — price ≤ p50 (%.0f vs %.0f)", price, p50)
+		total = lerp(p50, 50, 80, price, p20)
+		pct := pricePercentile(prices, price)
+		reason = fmt.Sprintf("price_at_p%02d", pct)
 	default:
-		// Above median: linear ramp from 50 (at p50) toward 0 (at 2x p50).
-		ceil := p50 * 2
-		if ceil <= p50 {
-			ceil = p50 + 1
+		// linear ramp from 50 at p50 to 0 at 2×p50
+		if p50 <= 0 {
+			total = 0
+			reason = "above_median"
+		} else {
+			cap := 2 * p50
+			if price >= cap {
+				total = 0
+			} else {
+				frac := (cap - price) / p50 // goes from 1.0 at p50 to 0 at 2*p50
+				total = int(frac * 50)
+				if total < 0 {
+					total = 0
+				}
+			}
+			reason = "above_median"
 		}
-		out.Total = lerp(price, p50, ceil, 50, 0)
-		out.Reason = fmt.Sprintf("above median — price > p50 (%.0f vs %.0f)", price, p50)
 	}
-	if out.Total < 0 {
-		out.Total = 0
+
+	return Score{
+		Total:   total,
+		Reason:  reason,
+		Samples: n,
+		P10:     p10,
+		P20:     p20,
+		P50:     p50,
 	}
-	if out.Total > 100 {
-		out.Total = 100
-	}
-	return out
 }
 
-// percentile returns the linear-interpolation percentile at q (0..1)
-// over a pre-sorted ascending slice. Caller guarantees len > 0.
-func percentile(sorted []float64, q float64) float64 {
-	if len(sorted) == 1 {
+// percentile returns the p-th percentile of a sorted slice (0-100).
+func percentile(sorted []float64, p int) float64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	if p <= 0 {
 		return sorted[0]
 	}
-	pos := q * float64(len(sorted)-1)
-	lo := int(pos)
-	hi := lo + 1
-	if hi >= len(sorted) {
+	if p >= 100 {
 		return sorted[len(sorted)-1]
 	}
-	frac := pos - float64(lo)
-	return sorted[lo] + frac*(sorted[hi]-sorted[lo])
+	idx := float64(p) / 100.0 * float64(len(sorted)-1)
+	lo := int(idx)
+	hi := lo + 1
+	if hi >= len(sorted) {
+		return sorted[lo]
+	}
+	frac := idx - float64(lo)
+	return sorted[lo]*(1-frac) + sorted[hi]*frac
 }
 
-// lerp maps a value `v` from input range [a..b] to output range
-// [outA..outB]. Endpoints are clamped. Returns the integer-rounded
-// result for clean Score.Total emission.
-func lerp(v, a, b, outA, outB float64) int {
-	if a == b {
-		return int(outA)
+// pricePercentile returns the approximate percentile rank of price in sorted prices.
+func pricePercentile(sorted []float64, price float64) int {
+	count := 0
+	for _, p := range sorted {
+		if p <= price {
+			count++
+		}
 	}
-	t := (v - a) / (b - a)
-	if t < 0 {
-		t = 0
-	}
-	if t > 1 {
-		t = 1
-	}
-	out := outA + t*(outB-outA)
-	return int(out + 0.5)
+	return count * 100 / len(sorted)
 }
 
-// Store persists samples to ~/.trvl/deal-history.json. Append, Query,
-// and Score are goroutine-safe.
+// lerp interpolates linearly. Returns minScore when price==high, maxScore when price==low.
+// Used for scoring bands where lower price → higher score.
+func lerp(high float64, minScore, maxScore int, price, low float64) int {
+	if high <= low {
+		return maxScore
+	}
+	span := high - low
+	pos := price - low
+	if pos <= 0 {
+		return maxScore
+	}
+	if pos >= span {
+		return minScore
+	}
+	frac := pos / span
+	score := float64(maxScore) - frac*float64(maxScore-minScore)
+	return int(score)
+}
+
+// Store is a concurrency-safe, atomic-write store for deal history.
+// Persists to dir/deal-history.json.
 type Store struct {
 	mu      sync.Mutex
-	path    string
+	dir     string
 	samples []Sample
-	// alerted tracks the last time MIK-3085 sent a mistake-fare alert
-	// for a given (route, kind) tuple. Used by MaybeAlertMistakeFare's
-	// 24h decay rule. Persisted alongside samples in deal-history.json.
-	alerted map[string]time.Time
 }
 
-// NewStore constructs a Store rooted at the given file path. If the
-// file exists it is loaded; missing → empty store.
-func NewStore(path string) (*Store, error) {
-	s := &Store{path: path}
-	if err := s.load(); err != nil {
-		return nil, err
-	}
-	return s, nil
+// NewStore creates a store rooted at the given directory.
+func NewStore(dir string) *Store {
+	return &Store{dir: dir}
 }
 
-// DefaultStore returns a Store at ~/.trvl/deal-history.json.
+// DefaultStore returns a store at ~/.trvl/.
 func DefaultStore() (*Store, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve home directory: %w", err)
 	}
-	return NewStore(filepath.Join(home, ".trvl", "deal-history.json"))
+	return NewStore(filepath.Join(home, ".trvl")), nil
 }
 
-func (s *Store) load() error {
-	data, err := os.ReadFile(s.path)
+func (s *Store) historyPath() string {
+	return filepath.Join(s.dir, "deal-history.json")
+}
+
+func (s *Store) ensureDir() error {
+	return os.MkdirAll(s.dir, 0o700)
+}
+
+// Load reads samples from disk. If the file does not exist, the store starts empty.
+func (s *Store) Load() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.samples = nil
+	return s.loadLocked()
+}
+
+func (s *Store) loadLocked() error {
+	data, err := os.ReadFile(s.historyPath())
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("dealquality: read %s: %w", s.path, err)
+		return fmt.Errorf("read deal history: %w", err)
 	}
 	if len(data) == 0 {
 		return nil
 	}
-	var wrapper struct {
-		Samples []Sample             `json:"samples"`
-		Alerted map[string]time.Time `json:"mistake_alerts,omitempty"`
-	}
-	if err := json.Unmarshal(data, &wrapper); err != nil {
-		return fmt.Errorf("dealquality: parse %s: %w", s.path, err)
-	}
-	s.samples = wrapper.Samples
-	s.alerted = wrapper.Alerted
-	return nil
-}
-
-// Save writes the current samples to disk atomically (write-temp + rename).
-func (s *Store) Save() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.saveLocked()
+	return json.Unmarshal(data, &s.samples)
 }
 
 func (s *Store) saveLocked() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return fmt.Errorf("dealquality: mkdir: %w", err)
+	if err := s.ensureDir(); err != nil {
+		return fmt.Errorf("create storage dir: %w", err)
 	}
-	tmp := s.path + ".tmp"
-	wrapper := struct {
-		Samples []Sample             `json:"samples"`
-		Alerted map[string]time.Time `json:"mistake_alerts,omitempty"`
-	}{Samples: s.samples, Alerted: s.alerted}
-	data, err := json.MarshalIndent(wrapper, "", "  ")
+	b, err := json.MarshalIndent(s.samples, "", "  ")
 	if err != nil {
-		return fmt.Errorf("dealquality: marshal: %w", err)
+		return fmt.Errorf("marshal deal history: %w", err)
 	}
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("dealquality: write tmp: %w", err)
+
+	dir := filepath.Dir(s.historyPath())
+	tmp, err := os.CreateTemp(dir, "deal-history.json.tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
 	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		return fmt.Errorf("dealquality: rename: %w", err)
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
 	}
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	if err := os.Rename(tmpPath, s.historyPath()); err != nil {
+		if runtime.GOOS == "windows" {
+			_ = os.Remove(s.historyPath())
+			if err2 := os.Rename(tmpPath, s.historyPath()); err2 == nil {
+				cleanup = false
+				return nil
+			}
+		}
+		return err
+	}
+
+	cleanup = false
 	return nil
 }
 
-// Append records one sample, prunes anything older than HistoryWindowDays,
-// and persists. Idempotent within the same (route, kind, date, price)
-// tuple emitted in the same Append call (de-dup avoids the watch
-// scheduler hammering the same observation N times per hour).
+// Append adds a sample, deduplicating exact (Route,Kind,Date,Price) matches
+// and pruning entries older than 90 days.
 func (s *Store) Append(sample Sample) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sample.Timestamp.IsZero() {
-		sample.Timestamp = time.Now().UTC()
+
+	// Load latest from disk first so concurrent writers don't lose data.
+	if err := s.loadLocked(); err != nil {
+		return fmt.Errorf("reload before append: %w", err)
 	}
-	if sample.Season == "" && sample.Date != "" {
-		if t, err := time.Parse("2006-01-02", sample.Date); err == nil {
-			sample.Season = SeasonOf(t)
+
+	// Dedup exact matches.
+	for _, existing := range s.samples {
+		if existing.Route == sample.Route &&
+			existing.Kind == sample.Kind &&
+			existing.Date == sample.Date &&
+			existing.Price == sample.Price {
+			return nil // already present
 		}
 	}
-	// De-dup against the most recent matching tuple.
-	if n := len(s.samples); n > 0 {
-		last := s.samples[n-1]
-		if last.Route == sample.Route && last.Kind == sample.Kind &&
-			last.Date == sample.Date && last.Price == sample.Price {
-			return nil
+
+	// Prune samples older than 90 days.
+	cutoff := time.Now().AddDate(0, 0, -90).Format(historyLayout)
+	pruned := s.samples[:0]
+	for _, existing := range s.samples {
+		if existing.Date >= cutoff {
+			pruned = append(pruned, existing)
 		}
 	}
+	s.samples = pruned
+
 	s.samples = append(s.samples, sample)
-	s.prune(time.Now().UTC())
 	return s.saveLocked()
 }
 
-// prune drops samples whose Timestamp is older than HistoryWindowDays
-// before `now`. Caller holds s.mu.
-func (s *Store) prune(now time.Time) {
-	cutoff := now.AddDate(0, 0, -HistoryWindowDays)
-	kept := s.samples[:0]
-	for _, sm := range s.samples {
-		if !sm.Timestamp.Before(cutoff) {
-			kept = append(kept, sm)
-		}
-	}
-	s.samples = kept
-}
-
-// Query returns prices for the matching route+season+kind. Pure read
-// path; safe for concurrent callers.
-func (s *Store) Query(route, kind, season string) []float64 {
+// Query returns all samples for route+kind+season within 90 days.
+func (s *Store) Query(route, kind, season string) []Sample {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var out []float64
-	for _, sm := range s.samples {
-		if sm.Route == route && sm.Kind == kind && sm.Season == season {
-			out = append(out, sm.Price)
+
+	cutoff := time.Now().AddDate(0, 0, -90).Format(historyLayout)
+	var out []Sample
+	for _, sample := range s.samples {
+		if sample.Route == route &&
+			sample.Kind == kind &&
+			sample.Season == season &&
+			sample.Date >= cutoff {
+			out = append(out, sample)
 		}
 	}
 	return out
-}
-
-// Score is the convenience wrapper that pulls the relevant samples from
-// the Store and runs ScoreAgainst.
-func (s *Store) Score(route, kind string, tripDate time.Time, price float64) Score {
-	prices := s.Query(route, kind, SeasonOf(tripDate))
-	return ScoreAgainst(price, prices)
 }

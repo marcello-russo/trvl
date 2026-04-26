@@ -82,8 +82,9 @@ func runForecast(cmd *cobra.Command, args []string) error {
 	}
 
 	samples := store.Query(route, kind, season)
-	f := forecast.ForecastAgainst(price, samples, horizon)
-	curve := forecast.HistogramOf(samples, 12, price)
+	prices := samplesToFloat64(samples)
+	f := forecast.ForecastAgainst(price, prices, horizon)
+	curve := forecast.HistogramOf(prices, 12, price)
 
 	_ = context.Background() // ctx reserved for future net calls
 
@@ -108,9 +109,19 @@ func runForecast(cmd *cobra.Command, args []string) error {
 
 func openHistoryStore(override string) (*dealquality.Store, error) {
 	if override != "" {
-		return dealquality.NewStore(override)
+		return dealquality.NewStore(override), nil
 	}
 	return dealquality.DefaultStore()
+}
+
+// samplesToFloat64 extracts prices from a []dealquality.Sample for use with
+// the forecast package which works on plain float64 slices.
+func samplesToFloat64(samples []dealquality.Sample) []float64 {
+	out := make([]float64, len(samples))
+	for i, s := range samples {
+		out[i] = s.Price
+	}
+	return out
 }
 
 func renderForecastTable(out *os.File, route, kind, season string, price float64, f forecast.Forecast, c forecast.Curve) {

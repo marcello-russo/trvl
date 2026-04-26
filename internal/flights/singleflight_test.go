@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/MikkoParkkola/trvl/internal/models"
 )
 
 // TestFlightSingleflight verifies that concurrent calls with the same key
@@ -105,5 +107,73 @@ func TestSearchFlightsWithClient_Singleflight(t *testing.T) {
 		if err == nil {
 			t.Errorf("goroutine %d: expected error for missing origin, got nil", i)
 		}
+	}
+}
+
+func TestCloneFlightSearchResult_ReturnsCallerPrivateCopy(t *testing.T) {
+	carryOn := true
+	checkedBags := 1
+	shared := &models.FlightSearchResult{
+		Success:  true,
+		Count:    2,
+		TripType: "one_way",
+		Flights: []models.FlightResult{
+			{
+				Price:               123,
+				Warnings:            []string{"Self-connect risk"},
+				Legs:                []models.FlightLeg{{AirlineCode: "AY"}},
+				CarryOnIncluded:     &carryOn,
+				CheckedBagsIncluded: &checkedBags,
+			},
+			{Price: 456},
+		},
+	}
+
+	clone := cloneFlightSearchResult(shared)
+	if clone == shared {
+		t.Fatal("cloneFlightSearchResult returned the original pointer")
+	}
+	if len(clone.Flights) != len(shared.Flights) {
+		t.Fatalf("len(clone.Flights) = %d, want %d", len(clone.Flights), len(shared.Flights))
+	}
+	if len(clone.Flights) > 0 && &clone.Flights[0] == &shared.Flights[0] {
+		t.Fatal("cloneFlightSearchResult reused the shared Flights backing array")
+	}
+	if len(clone.Flights[0].Warnings) > 0 && &clone.Flights[0].Warnings[0] == &shared.Flights[0].Warnings[0] {
+		t.Fatal("cloneFlightSearchResult reused the shared Warnings backing array")
+	}
+	if len(clone.Flights[0].Legs) > 0 && &clone.Flights[0].Legs[0] == &shared.Flights[0].Legs[0] {
+		t.Fatal("cloneFlightSearchResult reused the shared Legs backing array")
+	}
+	if clone.Flights[0].CarryOnIncluded == shared.Flights[0].CarryOnIncluded {
+		t.Fatal("cloneFlightSearchResult reused the shared CarryOnIncluded pointer")
+	}
+	if clone.Flights[0].CheckedBagsIncluded == shared.Flights[0].CheckedBagsIncluded {
+		t.Fatal("cloneFlightSearchResult reused the shared CheckedBagsIncluded pointer")
+	}
+
+	clone.Count = 1
+	clone.Flights[0].Warnings[0] = "changed"
+	clone.Flights[0].Legs[0].AirlineCode = "JL"
+	*clone.Flights[0].CarryOnIncluded = false
+	*clone.Flights[0].CheckedBagsIncluded = 2
+	clone.Flights = clone.Flights[:1]
+	if shared.Count != 2 {
+		t.Fatalf("shared.Count = %d, want 2", shared.Count)
+	}
+	if len(shared.Flights) != 2 {
+		t.Fatalf("len(shared.Flights) = %d, want 2", len(shared.Flights))
+	}
+	if got := shared.Flights[0].Warnings[0]; got != "Self-connect risk" {
+		t.Fatalf("shared warning = %q, want %q", got, "Self-connect risk")
+	}
+	if got := shared.Flights[0].Legs[0].AirlineCode; got != "AY" {
+		t.Fatalf("shared leg airline = %q, want %q", got, "AY")
+	}
+	if got := *shared.Flights[0].CarryOnIncluded; !got {
+		t.Fatalf("shared CarryOnIncluded = %v, want true", got)
+	}
+	if got := *shared.Flights[0].CheckedBagsIncluded; got != 1 {
+		t.Fatalf("shared CheckedBagsIncluded = %d, want 1", got)
 	}
 }

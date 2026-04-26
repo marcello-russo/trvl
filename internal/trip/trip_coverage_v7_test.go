@@ -412,8 +412,11 @@ func TestRankDiscoverTrials_Basic(t *testing.T) {
 	if r.BudgetSlack != 250 {
 		t.Errorf("slack = %v, want 250", r.BudgetSlack)
 	}
-	if r.ValueScore <= 0 {
-		t.Errorf("value score = %v, want > 0", r.ValueScore)
+	if r.ProfileMatch <= 0 {
+		t.Errorf("profile match = %v, want > 0", r.ProfileMatch)
+	}
+	if r.MatchBreakdown == nil {
+		t.Error("match breakdown should not be nil")
 	}
 	if r.Reasoning == "" {
 		t.Error("reasoning should not be empty")
@@ -457,7 +460,7 @@ func TestRankDiscoverTrials_NoHotelData(t *testing.T) {
 	}
 }
 
-func TestRankDiscoverTrials_RankedByValueScore(t *testing.T) {
+func TestRankDiscoverTrials_RankedByProfileMatch(t *testing.T) {
 	fri := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
 
 	trials := []discoverTrial{
@@ -478,12 +481,12 @@ func TestRankDiscoverTrials_RankedByValueScore(t *testing.T) {
 	if len(results) != 2 {
 		t.Fatalf("expected 2, got %d", len(results))
 	}
-	// Cheap trip (total=100) should have higher value score than expensive (total=450).
+	// Cheap trip (total=100) should have higher profile match than expensive (total=450).
 	if results[0].Destination != "Tallinn" {
-		t.Errorf("highest value = %q, want Tallinn", results[0].Destination)
+		t.Errorf("highest match = %q, want Tallinn", results[0].Destination)
 	}
-	if results[0].ValueScore <= results[1].ValueScore {
-		t.Errorf("Tallinn value (%v) should be > Tokyo value (%v)", results[0].ValueScore, results[1].ValueScore)
+	if results[0].ProfileMatch <= results[1].ProfileMatch {
+		t.Errorf("Tallinn match (%v) should be > Tokyo match (%v)", results[0].ProfileMatch, results[1].ProfileMatch)
 	}
 }
 
@@ -525,9 +528,9 @@ func TestRankDiscoverTrials_ZeroRating(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1, got %d", len(results))
 	}
-	// Zero rating -> quality = 0.5 (base).
-	if results[0].ValueScore <= 0 {
-		t.Errorf("value score = %v, want > 0 even with zero rating", results[0].ValueScore)
+	// Zero rating → other factors still apply; score should be > 0.
+	if results[0].ProfileMatch <= 0 {
+		t.Errorf("profile match = %v, want > 0 even with zero rating", results[0].ProfileMatch)
 	}
 }
 
@@ -562,7 +565,7 @@ func TestRankDiscoverTrials_EmptyTrials(t *testing.T) {
 func TestRankDiscoverTrials_BudgetFitClampedAtZero(t *testing.T) {
 	fri := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
 
-	// Total exactly at budget -> budgetFit=0 -> valueScore=0.
+	// Total exactly at budget -> budget_fit factor = 0, overall score is lower.
 	trials := []discoverTrial{
 		{
 			window: candidateWindow{start: fri, end: fri.AddDate(0, 0, 2), nights: 2},
@@ -576,8 +579,9 @@ func TestRankDiscoverTrials_BudgetFitClampedAtZero(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1, got %d", len(results))
 	}
-	if results[0].ValueScore != 0 {
-		t.Errorf("value score = %v, want 0 (at budget)", results[0].ValueScore)
+	// budget_fit is 0 but other neutral factors contribute; score is < 50.
+	if results[0].ProfileMatch >= 50 {
+		t.Errorf("profile match = %v, want < 50 when at budget (budget_fit=0)", results[0].ProfileMatch)
 	}
 	if results[0].BudgetSlack != 0 {
 		t.Errorf("slack = %v, want 0", results[0].BudgetSlack)

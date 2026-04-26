@@ -58,13 +58,13 @@ type HotelResult struct {
 // Included in search responses so the orchestrating LLM can autonomously
 // diagnose and fix broken providers.
 type ProviderStatus struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Status  string `json:"status"`           // "ok", "error", "disabled"
-	Results int    `json:"results,omitempty"` // number of results returned
-	Error       string `json:"error,omitempty"`        // error message if status != "ok"
-	FixHint     string `json:"fix_hint,omitempty"`     // actionable hint for the LLM
-	FixHintCode string `json:"fix_hint_code,omitempty"` // typed classification (MIK-3074)
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Status      string `json:"status"`                  // "ok", "error", "disabled"
+	Results     int    `json:"results,omitempty"`        // number of results returned
+	Error       string `json:"error,omitempty"`          // error message if status != "ok"
+	FixHint     string `json:"fix_hint,omitempty"`       // actionable hint for the LLM
+	FixHintCode string `json:"fix_hint_code,omitempty"`  // typed root-cause code (e.g. "AKAMAI_BLOCK")
 }
 
 // HotelSearchResult is the top-level response for a hotel search.

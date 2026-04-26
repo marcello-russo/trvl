@@ -285,7 +285,7 @@ func TestAirportAffinity_RoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "preferences.json")
 
 	p := Default()
-	p.AirportAffinity = map[string]int{"BRU": 3, "EIN": 1}
+	p.AirportAffinity = map[string]float64{"BRU": 3, "EIN": 1}
 	if err := SaveTo(path, p); err != nil {
 		t.Fatalf("SaveTo: %v", err)
 	}
@@ -295,10 +295,10 @@ func TestAirportAffinity_RoundTrip(t *testing.T) {
 		t.Fatalf("LoadFrom: %v", err)
 	}
 	if loaded.AirportAffinity["BRU"] != 3 {
-		t.Errorf("BRU affinity: got %d, want 3", loaded.AirportAffinity["BRU"])
+		t.Errorf("BRU affinity: got %v, want 3", loaded.AirportAffinity["BRU"])
 	}
 	if loaded.AirportAffinity["EIN"] != 1 {
-		t.Errorf("EIN affinity: got %d, want 1", loaded.AirportAffinity["EIN"])
+		t.Errorf("EIN affinity: got %v, want 1", loaded.AirportAffinity["EIN"])
 	}
 }
 
@@ -343,7 +343,7 @@ func TestRecordWinningOrigin_IncrementsAndCaps(t *testing.T) {
 			return err
 		}
 		if prefs.AirportAffinity == nil {
-			prefs.AirportAffinity = make(map[string]int)
+			prefs.AirportAffinity = make(map[string]float64)
 		}
 		score := prefs.AirportAffinity[iata] + 1
 		if score > affinityMaxScore {
@@ -359,7 +359,7 @@ func TestRecordWinningOrigin_IncrementsAndCaps(t *testing.T) {
 	}
 	got, _ := LoadFrom(path)
 	if got.AirportAffinity["EIN"] != 1 {
-		t.Errorf("after 1 win: got %d, want 1", got.AirportAffinity["EIN"])
+		t.Errorf("after 1 win: got %v, want 1", got.AirportAffinity["EIN"])
 	}
 
 	// Second win: 1 → 2.
@@ -368,7 +368,7 @@ func TestRecordWinningOrigin_IncrementsAndCaps(t *testing.T) {
 	}
 	got, _ = LoadFrom(path)
 	if got.AirportAffinity["EIN"] != 2 {
-		t.Errorf("after 2 wins: got %d, want 2", got.AirportAffinity["EIN"])
+		t.Errorf("after 2 wins: got %v, want 2", got.AirportAffinity["EIN"])
 	}
 
 	// Drive to cap.
@@ -379,7 +379,7 @@ func TestRecordWinningOrigin_IncrementsAndCaps(t *testing.T) {
 	}
 	got, _ = LoadFrom(path)
 	if got.AirportAffinity["EIN"] != affinityMaxScore {
-		t.Errorf("cap: got %d, want %d", got.AirportAffinity["EIN"], affinityMaxScore)
+		t.Errorf("cap: got %v, want %v", got.AirportAffinity["EIN"], affinityMaxScore)
 	}
 }
 
@@ -402,7 +402,7 @@ func TestRecordWinningOrigin_RailFlyAddsNearby(t *testing.T) {
 			return err
 		}
 		if prefs.AirportAffinity == nil {
-			prefs.AirportAffinity = make(map[string]int)
+			prefs.AirportAffinity = make(map[string]float64)
 		}
 		score := prefs.AirportAffinity[iata] + 1
 		if score > affinityMaxScore {

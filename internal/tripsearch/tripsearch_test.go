@@ -182,7 +182,7 @@ func TestSearch_FullPipelineWithFakeSearch(t *testing.T) {
 
 func TestExpandOrigins_AffinityIncludedAtThreshold(t *testing.T) {
 	prefs := mkPrefs()
-	prefs.AirportAffinity = map[string]int{"CDG": 3, "LIS": 2}
+	prefs.AirportAffinity = map[string]float64{"CDG": 3, "LIS": 2}
 
 	out, err := ExpandOrigins("home", prefs)
 	if err != nil {
@@ -202,7 +202,7 @@ func TestExpandOrigins_AffinityIncludedAtThreshold(t *testing.T) {
 
 func TestExpandOrigins_AffinityNotAppliedToExplicitOrigin(t *testing.T) {
 	prefs := mkPrefs()
-	prefs.AirportAffinity = map[string]int{"CDG": 10}
+	prefs.AirportAffinity = map[string]float64{"CDG": 10}
 
 	// Explicit "HEL" — affinity fan-out must NOT apply.
 	out, err := ExpandOrigins("HEL", prefs)

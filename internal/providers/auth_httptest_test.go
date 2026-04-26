@@ -621,10 +621,10 @@ func TestProviderFixHint(t *testing.T) {
 	}{
 		{"preflight request failed", "test_provider"},
 		{"results_path did not resolve", "response structure changed"},
-		{"http 403: blocked", "WAF block"},
-		{"http 202: challenge page", "WAF block"},
+		{"http 403: blocked", "WAF"},
+		{"http 202: challenge page", "WAF"},
 		{"rate limit exceeded", "Rate limited"},
-		{"connection refused", "test_provider"},
+		{"connection refused", "connectivity"},
 	}
 	for _, tc := range tests {
 		hint := providerFixHint(fmt.Errorf("%s", tc.err))

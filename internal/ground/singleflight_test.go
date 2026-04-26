@@ -1,9 +1,14 @@
 package ground
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/MikkoParkkola/trvl/internal/models"
 )
 
 // TestGroundSingleflight verifies that concurrent calls with the same key
@@ -98,4 +103,268 @@ func TestSearchByNameSingleflight_NoCache(t *testing.T) {
 	// We just verify it doesn't panic/deadlock; result doesn't matter.
 	result, _ := SearchByName(t.Context(), "TestCityXYZ99", "TestCityABC88", "2026-06-15", opts)
 	_ = result
+}
+
+func TestGroundSingleflight_ConcurrentCallersGetPrivateResults(t *testing.T) {
+	seatsLeft := 3
+	shared := &models.GroundSearchResult{
+		Success: true,
+		Count:   1,
+		Routes: []models.GroundRoute{
+			{
+				Provider:  "flixbus",
+				Price:     49,
+				Amenities: []string{"wifi", "toilet"},
+				Legs: []models.GroundLeg{
+					{
+						Provider:  "flixbus",
+						Amenities: []string{"power"},
+					},
+				},
+				SeatsLeft: &seatsLeft,
+			},
+		},
+	}
+
+	const n = 2
+	key := "ground|Amsterdam|Paris|2026-06-15|EUR|flixbus|0.00||false"
+
+	var callCount atomic.Int64
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	results := make([]*models.GroundSearchResult, n)
+	errs := make([]error, n)
+
+	for i := range n {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-start
+			v, err, _ := groundGroup.Do(key, func() (any, error) {
+				callCount.Add(1)
+				time.Sleep(50 * time.Millisecond)
+				return shared, nil
+			})
+			if err == nil {
+				results[idx] = cloneGroundSearchResult(v.(*models.GroundSearchResult))
+			}
+			errs[idx] = err
+		}(i)
+	}
+
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("caller %d singleflight error: %v", i, err)
+		}
+	}
+	if got := callCount.Load(); got != 1 {
+		t.Fatalf("callCount = %d, want 1 shared singleflight execution", got)
+	}
+	if results[0] == results[1] {
+		t.Fatal("concurrent callers received the same GroundSearchResult pointer")
+	}
+	if len(results[0].Routes) == 0 || len(results[1].Routes) == 0 {
+		t.Fatal("expected both callers to receive routes")
+	}
+	if &results[0].Routes[0] == &results[1].Routes[0] {
+		t.Fatal("concurrent callers reused the same GroundRoute backing storage")
+	}
+
+	otherCount := results[1].Count
+	otherPrice := results[1].Routes[0].Price
+	otherSeatsLeft := *results[1].Routes[0].SeatsLeft
+	otherRoutesLen := len(results[1].Routes)
+
+	results[0].Count = 0
+	results[0].Routes[0].Price = otherPrice + 10
+	results[0].Routes[0].Amenities[0] = "changed"
+	results[0].Routes[0].Legs[0].Amenities[0] = "usb"
+	*results[0].Routes[0].SeatsLeft = 1
+	results[0].Routes = results[0].Routes[:0]
+
+	if results[1].Count != otherCount {
+		t.Fatalf("caller 1 Count changed to %d, want %d", results[1].Count, otherCount)
+	}
+	if len(results[1].Routes) != otherRoutesLen {
+		t.Fatalf("caller 1 len(Routes) changed to %d, want %d", len(results[1].Routes), otherRoutesLen)
+	}
+	if results[1].Routes[0].Price != otherPrice {
+		t.Fatalf("caller 1 route price changed to %v, want %v", results[1].Routes[0].Price, otherPrice)
+	}
+	if got := results[1].Routes[0].Amenities[0]; got != "wifi" {
+		t.Fatalf("caller 1 route amenity changed to %q, want %q", got, "wifi")
+	}
+	if got := results[1].Routes[0].Legs[0].Amenities[0]; got != "power" {
+		t.Fatalf("caller 1 leg amenity changed to %q, want %q", got, "power")
+	}
+	if got := *results[1].Routes[0].SeatsLeft; got != otherSeatsLeft {
+		t.Fatalf("caller 1 SeatsLeft changed to %d, want %d", got, otherSeatsLeft)
+	}
+}
+
+func TestCloneGroundSearchResult_ReturnsCallerPrivateCopy(t *testing.T) {
+	seatsLeft := 3
+	shared := &models.GroundSearchResult{
+		Success: true,
+		Count:   1,
+		Routes: []models.GroundRoute{
+			{
+				Provider:  "flixbus",
+				Price:     49,
+				Amenities: []string{"wifi", "toilet"},
+				Legs: []models.GroundLeg{
+					{
+						Provider:  "flixbus",
+						Amenities: []string{"power"},
+					},
+				},
+				SeatsLeft: &seatsLeft,
+			},
+		},
+	}
+
+	clone := cloneGroundSearchResult(shared)
+	if clone == shared {
+		t.Fatal("cloneGroundSearchResult returned the original pointer")
+	}
+	if len(clone.Routes) != len(shared.Routes) {
+		t.Fatalf("len(clone.Routes) = %d, want %d", len(clone.Routes), len(shared.Routes))
+	}
+	if &clone.Routes[0] == &shared.Routes[0] {
+		t.Fatal("cloneGroundSearchResult reused the shared Routes backing array")
+	}
+	if &clone.Routes[0].Amenities[0] == &shared.Routes[0].Amenities[0] {
+		t.Fatal("cloneGroundSearchResult reused the shared Amenities backing array")
+	}
+	if &clone.Routes[0].Legs[0] == &shared.Routes[0].Legs[0] {
+		t.Fatal("cloneGroundSearchResult reused the shared Legs backing array")
+	}
+	if &clone.Routes[0].Legs[0].Amenities[0] == &shared.Routes[0].Legs[0].Amenities[0] {
+		t.Fatal("cloneGroundSearchResult reused the shared leg Amenities backing array")
+	}
+	if clone.Routes[0].SeatsLeft == shared.Routes[0].SeatsLeft {
+		t.Fatal("cloneGroundSearchResult reused the shared SeatsLeft pointer")
+	}
+
+	clone.Count = 0
+	clone.Routes[0].Amenities[0] = "changed"
+	clone.Routes[0].Legs[0].Amenities[0] = "usb"
+	*clone.Routes[0].SeatsLeft = 1
+	clone.Routes = clone.Routes[:0]
+	if shared.Count != 1 {
+		t.Fatalf("shared.Count = %d, want 1", shared.Count)
+	}
+	if len(shared.Routes) != 1 {
+		t.Fatalf("len(shared.Routes) = %d, want 1", len(shared.Routes))
+	}
+	if got := shared.Routes[0].Amenities[0]; got != "wifi" {
+		t.Fatalf("shared route amenity = %q, want %q", got, "wifi")
+	}
+	if got := shared.Routes[0].Legs[0].Amenities[0]; got != "power" {
+		t.Fatalf("shared leg amenity = %q, want %q", got, "power")
+	}
+	if got := *shared.Routes[0].SeatsLeft; got != 3 {
+		t.Fatalf("shared SeatsLeft = %d, want 3", got)
+	}
+}
+
+func TestSharedGroundResult_ClonesPartialErrorResult(t *testing.T) {
+	seatsLeft := 3
+	shared := &models.GroundSearchResult{
+		Success: false,
+		Count:   1,
+		Routes: []models.GroundRoute{
+			{
+				Provider:  "flixbus",
+				Price:     49,
+				Amenities: []string{"wifi"},
+				Legs: []models.GroundLeg{
+					{
+						Provider:  "flixbus",
+						Amenities: []string{"power"},
+					},
+				},
+				SeatsLeft: &seatsLeft,
+			},
+		},
+	}
+
+	wantErr := errors.New("provider partial failure")
+	got, err := sharedGroundResult(shared, wantErr)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("err = %v, want %v", err, wantErr)
+	}
+	if got == shared {
+		t.Fatal("sharedGroundResult returned the original pointer")
+	}
+	if &got.Routes[0] == &shared.Routes[0] {
+		t.Fatal("sharedGroundResult reused the shared Routes backing array")
+	}
+	if got.Routes[0].SeatsLeft == shared.Routes[0].SeatsLeft {
+		t.Fatal("sharedGroundResult reused the shared SeatsLeft pointer")
+	}
+
+	got.Routes[0].Amenities[0] = "changed"
+	got.Routes[0].Legs[0].Amenities[0] = "usb"
+	*got.Routes[0].SeatsLeft = 1
+
+	if shared.Routes[0].Amenities[0] != "wifi" {
+		t.Fatalf("shared amenity = %q, want %q", shared.Routes[0].Amenities[0], "wifi")
+	}
+	if shared.Routes[0].Legs[0].Amenities[0] != "power" {
+		t.Fatalf("shared leg amenity = %q, want %q", shared.Routes[0].Legs[0].Amenities[0], "power")
+	}
+	if got := *shared.Routes[0].SeatsLeft; got != 3 {
+		t.Fatalf("shared SeatsLeft = %d, want 3", got)
+	}
+}
+
+func TestDoGroundSearchSingleflight_ShortCallerDeadlineDoesNotPoisonSharedWork(t *testing.T) {
+	key := "ground|Amsterdam|Paris|2026-09-01|shared-timeout"
+
+	var callCount atomic.Int64
+	firstCtx, firstCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer firstCancel()
+	firstDeadline, ok := firstCtx.Deadline()
+	if !ok {
+		t.Fatal("first caller context unexpectedly has no deadline")
+	}
+
+	sharedDeadlineCh := make(chan time.Time, 1)
+	_, firstErr := doGroundSearchSingleflight(firstCtx, key, func(sharedCtx context.Context) (*models.GroundSearchResult, error) {
+		callCount.Add(1)
+		sharedDeadline, ok := sharedCtx.Deadline()
+		if !ok {
+			t.Fatal("shared context unexpectedly has no deadline")
+		}
+		sharedDeadlineCh <- sharedDeadline
+		<-sharedCtx.Done()
+		return nil, sharedCtx.Err()
+	})
+
+	if !errors.Is(firstErr, context.DeadlineExceeded) {
+		t.Fatalf("firstErr = %v, want context deadline exceeded", firstErr)
+	}
+	sharedDeadline := <-sharedDeadlineCh
+	if !sharedDeadline.After(firstDeadline.Add(100 * time.Millisecond)) {
+		t.Fatalf("shared deadline %v unexpectedly inherited short caller deadline %v", sharedDeadline, firstDeadline)
+	}
+	secondCtx, secondCancel := context.WithTimeout(context.Background(), time.Second)
+	defer secondCancel()
+	secondResult, secondErr := doGroundSearchSingleflight(secondCtx, key, func(sharedCtx context.Context) (*models.GroundSearchResult, error) {
+		callCount.Add(1)
+		return &models.GroundSearchResult{Success: true, Count: 1}, nil
+	})
+	if secondErr != nil {
+		t.Fatalf("secondErr = %v, want nil", secondErr)
+	}
+	if secondResult == nil || !secondResult.Success || secondResult.Count != 1 {
+		t.Fatalf("secondResult = %#v, want successful result from a fresh execution", secondResult)
+	}
+	if got := callCount.Load(); got != 2 {
+		t.Fatalf("callCount = %d, want 2 executions after the timed-out winner stops", got)
+	}
 }

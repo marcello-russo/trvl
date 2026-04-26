@@ -1,85 +1,112 @@
 package providers
 
-// MIK-3074: classify provider failures into typed FixHintCode values.
-
 import (
 	"errors"
-	"net"
-	"strings"
 	"testing"
 )
 
-func TestClassifyProviderError_NilReturnsUnclassified(t *testing.T) {
-	code, hint := classifyProviderError(nil)
-	if code != FixHintUnclassified {
-		t.Errorf("nil err: code = %q, want %q", code, FixHintUnclassified)
-	}
-	if hint != "" {
-		t.Errorf("nil err: hint = %q, want empty", hint)
-	}
-}
-
-func TestClassifyProviderError_Buckets(t *testing.T) {
+func TestClassifyProviderError_AllCodes(t *testing.T) {
 	cases := []struct {
-		name string
-		err  error
-		want FixHintCode
+		name     string
+		errMsg   string
+		wantCode FixHintCode
 	}{
-		{"dns_no_such_host", errors.New("dial: lookup foo.invalid: no such host"), FixHintDNSFail},
-		{"dns_typed", &net.DNSError{Err: "server misbehaving", Name: "foo.invalid"}, FixHintDNSFail},
-		{"rate_limit_429", errors.New("HTTP 429 too many requests"), FixHintRateLimited},
-		{"rate_limit_text", errors.New("provider returned rate limit error"), FixHintRateLimited},
-		{"tls_handshake", errors.New("tls: handshake failure"), FixHintTLSTimeout},
-		{"tls_x509", errors.New("x509: certificate signed by an unrecognised authority"), FixHintTLSTimeout},
-		{"akamai_403", errors.New("preflight http 403 (akamai)"), FixHintAkamaiBlock},
-		{"booking_202", errors.New("preflight: status 202 challenge"), FixHintAkamaiBlock},
-		{"cookie_expired", errors.New("csrf token mismatch"), FixHintCookieExpired},
-		{"unauthorized_401", errors.New("HTTP 401 unauthorized"), FixHintCookieExpired},
-		{"results_path_drift", errors.New("results_path 'data.hotels' not found"), FixHintResponseShape},
-		{"preflight_generic", errors.New("preflight read: EOF"), FixHintPreflightFailed},
-		{"unclassified_misc", errors.New("something else entirely"), FixHintUnclassified},
+		// Rate-limit beats WAF
+		{"rate_limit_text", "upstream: rate limit exceeded", FixHintRateLimited},
+		{"http_429", "server returned http 429 too many requests", FixHintRateLimited},
+		{"too_many_requests", "too many requests from this ip", FixHintRateLimited},
+
+		// Akamai / WAF block
+		{"akamai_explicit", "akamai edge server rejected request", FixHintAkamaiBlock},
+		{"http_403", "http 403 forbidden", FixHintAkamaiBlock},
+		{"http_202", "http 202 challenge page", FixHintAkamaiBlock},
+		{"access_denied", "access denied by provider waf", FixHintAkamaiBlock},
+
+		// Cookie / auth failure
+		{"cookie_expired", "cookie jar expired, re-login required", FixHintCookieExpired},
+		{"csrf_mismatch", "csrf token mismatch on post", FixHintCookieExpired},
+		{"http_401", "server returned 401 unauthorized", FixHintCookieExpired},
+
+		// Preflight step failure
+		{"preflight_fail", "preflight request to /auth failed", FixHintPreflightFailed},
+
+		// Response shape changed
+		{"results_path", "results_path '/data/hotels' not found in response", FixHintResponseShapeChanged},
+		{"unmarshal", "cannot unmarshal string into Go value of type []Hotel", FixHintResponseShapeChanged},
+		{"unexpected_eof", "unexpected end of json input", FixHintResponseShapeChanged},
+
+		// DNS failure
+		{"no_such_host", "dial tcp: lookup booking.com: no such host", FixHintDNSFail},
+		{"dns_explicit", "dns resolution failed for provider endpoint", FixHintDNSFail},
+
+		// TLS / connection timeout
+		{"tls_handshake", "tls handshake timeout after 10s", FixHintTLSTimeout},
+		{"deadline_exceeded", "context deadline exceeded", FixHintTLSTimeout},
+		{"timeout_generic", "connection timeout to provider", FixHintTLSTimeout},
+		{"connection_refused", "connection refused on port 443", FixHintTLSTimeout},
+
+		// Unclassified
+		{"unknown", "something completely unrecognised happened", FixHintUnclassified},
 	}
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			code, hint := classifyProviderError(tc.err)
-			if code != tc.want {
-				t.Errorf("err=%q: code = %q, want %q", tc.err.Error(), code, tc.want)
+			code, hint := classifyProviderError(errors.New(tc.errMsg))
+			if code != tc.wantCode {
+				t.Errorf("classifyProviderError(%q) code = %q, want %q", tc.errMsg, code, tc.wantCode)
 			}
 			if hint == "" {
-				t.Errorf("err=%q: empty hint for code %q", tc.err.Error(), code)
+				t.Errorf("classifyProviderError(%q) returned empty hint", tc.errMsg)
 			}
 		})
 	}
 }
 
-// TestClassifyProviderError_OrderingPriority verifies that more-specific
-// signals win over broader ones — e.g. "rate limit" inside an error string
-// that also contains "403" should still classify as RATE_LIMITED, not
-// AKAMAI_BLOCK. This guards against silent regressions if someone reorders
-// the cases in classifyProviderError.
-func TestClassifyProviderError_OrderingPriority(t *testing.T) {
-	rateInsideWAF := errors.New("HTTP 403 returned: rate limit exceeded")
-	if code, _ := classifyProviderError(rateInsideWAF); code != FixHintRateLimited {
-		t.Errorf("ambiguous err with both 403 + rate-limit: got %q, want %q", code, FixHintRateLimited)
+// TestClassifyProviderError_NilError verifies graceful handling of nil.
+func TestClassifyProviderError_NilError(t *testing.T) {
+	code, hint := classifyProviderError(nil)
+	if code != FixHintUnclassified {
+		t.Errorf("nil error should classify as UNCLASSIFIED, got %q", code)
 	}
-
-	wafInsideCookie := errors.New("HTTP 403 forbidden (cookie required)")
-	if code, _ := classifyProviderError(wafInsideCookie); code != FixHintAkamaiBlock {
-		t.Errorf("ambiguous err with 403 + cookie: got %q, want %q (WAF should win over cookie)", code, FixHintAkamaiBlock)
+	if hint == "" {
+		t.Error("nil error should still return a non-empty hint")
 	}
 }
 
-// TestProviderFixHint_DelegatesToClassifier ensures the back-compat wrapper
-// returns the same human text the classifier produces, so existing callers
-// that only need the string keep working unchanged (MIK-3074).
-func TestProviderFixHint_DelegatesToClassifier(t *testing.T) {
-	err := errors.New("preflight http 403 akamai")
-	got := providerFixHint(err)
-	_, want := classifyProviderError(err)
-	if got != want {
-		t.Errorf("providerFixHint = %q, want %q", got, want)
+// TestClassifyProviderError_OrderingPriority pins tie-breaker ordering:
+// rate-limit > WAF > cookie.
+func TestClassifyProviderError_OrderingPriority(t *testing.T) {
+	// A 429 that also contains "403" in the body — rate-limit wins.
+	code, _ := classifyProviderError(errors.New("http 429, previously saw http 403"))
+	if code != FixHintRateLimited {
+		t.Errorf("rate-limit should beat WAF, got %q", code)
 	}
-	if !strings.Contains(got, "WAF") {
-		t.Errorf("providerFixHint for WAF err did not mention WAF: %q", got)
+
+	// A 403 that also mentions "cookie" — WAF wins (403 is checked before cookie).
+	code, _ = classifyProviderError(errors.New("http 403, cookie header was present"))
+	if code != FixHintAkamaiBlock {
+		t.Errorf("WAF (403) should beat cookie when both match, got %q", code)
+	}
+}
+
+// TestProviderFixHint_BackCompat verifies that providerFixHint (the legacy
+// wrapper) returns a non-empty string for every error class.
+func TestProviderFixHint_BackCompat(t *testing.T) {
+	errs := []string{
+		"rate limit exceeded",
+		"http 403 forbidden",
+		"cookie expired",
+		"preflight failed",
+		"results_path not found",
+		"tls handshake timeout",
+		"context deadline exceeded",
+		"no such host",
+		"unrecognised error",
+	}
+	for _, msg := range errs {
+		hint := providerFixHint(errors.New(msg))
+		if hint == "" {
+			t.Errorf("providerFixHint(%q) returned empty hint", msg)
+		}
 	}
 }

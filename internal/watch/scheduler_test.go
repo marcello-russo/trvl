@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -94,6 +95,53 @@ func TestScheduler_Stop_DoneAfterStop(t *testing.T) {
 	}
 }
 
+func TestScheduler_StopWithoutStart(t *testing.T) {
+	t.Parallel()
+	s := NewScheduler(t.TempDir(), time.Hour, NoopChecker{})
+
+	done := make(chan struct{})
+	go func() {
+		s.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop() timed out before Start()")
+	}
+
+	// Once stopped early, later Start/Stop calls must remain harmless.
+	s.Start()
+	s.Stop()
+}
+
+func TestScheduler_ConcurrentStartStop_DoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	for i := 0; i < 500; i++ {
+		s := NewScheduler(t.TempDir(), time.Hour, NoopChecker{})
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			<-start
+			s.Start()
+		}()
+
+		go func() {
+			defer wg.Done()
+			<-start
+			s.Stop()
+		}()
+
+		close(start)
+		wg.Wait()
+	}
+}
+
 // --- CheckPrice called for active watches ---
 
 // countingChecker counts how many times CheckPrice is called.
@@ -105,6 +153,45 @@ type countingChecker struct {
 func (c *countingChecker) CheckPrice(_ context.Context, _ Watch) (float64, string, string, error) {
 	c.calls.Add(1)
 	return c.price, "EUR", "", nil
+}
+
+type recordingChecker struct {
+	calls atomic.Int64
+	ids   chan string
+	price float64
+}
+
+func (c *recordingChecker) CheckPrice(_ context.Context, w Watch) (float64, string, string, error) {
+	c.calls.Add(1)
+	if c.ids != nil {
+		c.ids <- w.ID
+	}
+	return c.price, "EUR", "", nil
+}
+
+type blockingChecker struct {
+	started   chan struct{}
+	cancelled chan struct{}
+	startOnce sync.Once
+	stopOnce  sync.Once
+}
+
+func newBlockingChecker() *blockingChecker {
+	return &blockingChecker{
+		started:   make(chan struct{}),
+		cancelled: make(chan struct{}),
+	}
+}
+
+func (c *blockingChecker) CheckPrice(ctx context.Context, _ Watch) (float64, string, string, error) {
+	c.startOnce.Do(func() {
+		close(c.started)
+	})
+	<-ctx.Done()
+	c.stopOnce.Do(func() {
+		close(c.cancelled)
+	})
+	return 0, "EUR", "", ctx.Err()
 }
 
 func TestScheduler_CallsCheckerForActiveWatches(t *testing.T) {
@@ -143,6 +230,52 @@ func TestScheduler_CallsCheckerForActiveWatches(t *testing.T) {
 
 	if checker.calls.Load() < 1 {
 		t.Errorf("CheckPrice called %d times, want >= 1", checker.calls.Load())
+	}
+}
+
+func TestScheduler_StopCancelsInflightChecks(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	_, err := store.Add(Watch{
+		Type:        "flight",
+		Origin:      "HEL",
+		Destination: "BCN",
+		DepartDate:  "2099-07-01",
+		BelowPrice:  500,
+		Currency:    "EUR",
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	checker := newBlockingChecker()
+	s := NewScheduler(dir, time.Hour, checker)
+	s.Start()
+
+	select {
+	case <-checker.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("CheckPrice did not start")
+	}
+
+	stopDone := make(chan struct{})
+	go func() {
+		s.Stop()
+		close(stopDone)
+	}()
+
+	select {
+	case <-checker.cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("CheckPrice did not observe cancellation from Stop")
+	}
+
+	select {
+	case <-stopDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop() timed out while a check was in flight")
 	}
 }
 
@@ -207,6 +340,66 @@ func TestScheduler_SkipsPastDateRangeWatches(t *testing.T) {
 
 	if checker.calls.Load() != 0 {
 		t.Errorf("CheckPrice called %d times for past date-range watch, want 0", checker.calls.Load())
+	}
+}
+
+func TestScheduler_ChecksOnlyActiveWatchesWhenStoreContainsPastEntries(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	activeID, err := store.Add(Watch{
+		Type:        "flight",
+		Origin:      "HEL",
+		Destination: "BCN",
+		DepartDate:  "2099-07-01",
+		BelowPrice:  500,
+		Currency:    "EUR",
+	})
+	if err != nil {
+		t.Fatalf("Add active watch: %v", err)
+	}
+
+	_, err = store.Add(Watch{
+		Type:        "flight",
+		Origin:      "HEL",
+		Destination: "NRT",
+		DepartDate:  "2000-01-01",
+		BelowPrice:  500,
+		Currency:    "EUR",
+	})
+	if err != nil {
+		t.Fatalf("Add past watch: %v", err)
+	}
+
+	checker := &recordingChecker{
+		ids:   make(chan string, 2),
+		price: 300,
+	}
+	s := NewScheduler(dir, time.Hour, checker)
+	s.Start()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if checker.calls.Load() >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	s.Stop()
+
+	if checker.calls.Load() != 1 {
+		t.Fatalf("CheckPrice called %d times, want 1", checker.calls.Load())
+	}
+
+	select {
+	case gotID := <-checker.ids:
+		if gotID != activeID {
+			t.Fatalf("checked watch %q, want active watch %q", gotID, activeID)
+		}
+	default:
+		t.Fatal("expected scheduler to record checked watch")
 	}
 }
 
@@ -316,8 +509,8 @@ func TestActiveWatches_FiltersCorrectly(t *testing.T) {
 	watches := []Watch{
 		{Type: "flight", Origin: "HEL", Destination: "BCN", DepartDate: "2099-01-01"}, // future
 		{Type: "flight", Origin: "HEL", Destination: "BCN", DepartDate: "2000-01-01"}, // past — skip
-		{Type: "flight", Origin: "HEL", Destination: "BCN"},                            // route — always
-		{Type: "flight", Origin: "HEL", Destination: "BCN", DepartDate: today},         // today
+		{Type: "flight", Origin: "HEL", Destination: "BCN"},                           // route — always
+		{Type: "flight", Origin: "HEL", Destination: "BCN", DepartDate: today},        // today
 	}
 
 	active := activeWatches(watches)

@@ -16,7 +16,7 @@
 
 > **57 travel tools for your AI assistant — flights, hotels, trains, buses, ferries, price alerts, travel hacks, weather forecasts, baggage rules, airport lounges, destination intel. Free. API-first.**
 >
-> Also works as a standalone CLI with 42 commands.
+> Also works as a standalone CLI with 43 commands.
 
 ### What it looks like
 
@@ -347,7 +347,7 @@ See [Quick Setup step 3](#3-optional-teach-your-ai-about-trvl) above for AGENTS.
 
 ## CLI Usage
 
-trvl also works as a standalone CLI tool with 42 commands:
+trvl also works as a standalone CLI tool with 43 commands:
 
 All search commands accept `--currency <CODE>` (e.g. `--currency EUR`) to convert displayed prices. trvl detects the actual API currency and converts at the display layer — no hardcoded currencies.
 
@@ -642,7 +642,7 @@ The AI uses these to give you actionable recommendations: "Book here: [link]". N
 | **Data** | Real-time from Google Flights + 5 hotel sources (Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld) + 20 ground providers (FlixBus, RegioJet, Eurostar, DB, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Snälltåget, Tallink, Viking Line, Eckerö Line, Finnlines, Stena Line, DFDS, Ferryhopper) + 5 free destination APIs |
 | **Auth** | No personal API keys required. Two providers (NS, Digitransit/VR) use public keys embedded in the binary. Optional browser/cookie fallbacks are available for protected providers when explicitly enabled. |
 | **MCP** | Full v2025-11-25 — 57 tools (incl. 4 profile tools, 3 price watch tools, provider health), 7 prompts, resources, structured content, progress notifications, resource subscriptions, tool description orchestration |
-| **CLI** | 42 commands (+ 7 watch subcommands) with table/JSON output, color, shell completion |
+| **CLI** | 43 commands (+ 7 watch subcommands) with table/JSON output, color, shell completion |
 | **Booking links** | Every flight and hotel result includes a direct Google booking link |
 | **Travel hacks** | 37 detectors (throwaway, hidden-city, positioning, ferry, multi-modal, stopover, date-flex, error fare, back-to-back, rail competition, and more) |
 | **Personal profile** | Learns from your booking history (email parsing + LLM). Remembers FF status, luggage needs, favourite properties, departure preferences, travel hacks used, accommodation preferences, family composition. Pre-search interviews skip questions the profile already answers. |
@@ -688,10 +688,6 @@ trvl is part of a suite of MCP tools:
 **Hotel search shows 0 results?** Check your dates — Google Hotels requires check-in in the future and at least 1 night. Try: `trvl hotels "London" --checkin 2026-07-01 --checkout 2026-07-03`.
 
 **MCP server crashes on startup?** Run `trvl mcp` directly in your terminal to see the error. Common cause: port conflict when using `--http`. Try a different port with `--port 8081`.
-
-## Thanks
-
-Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the upstream-first rule and how to run the test suite. The [`CONTRIBUTORS.md`](CONTRIBUTORS.md) file lists the people who have helped make trvl better.
 
 ## License
 

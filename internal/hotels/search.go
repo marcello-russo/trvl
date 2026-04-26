@@ -15,6 +15,7 @@ import (
 	"github.com/MikkoParkkola/trvl/internal/batchexec"
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/providers"
+	"github.com/MikkoParkkola/trvl/internal/searchctx"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -25,6 +26,8 @@ var (
 
 // hotelGroup deduplicates concurrent in-flight searches with identical parameters.
 var hotelGroup singleflight.Group
+
+const sharedHotelSearchTimeout = 30 * time.Second
 
 // externalProviderRuntime is set by the MCP server when providers are configured.
 // It is nil when no external providers are available.
@@ -173,8 +176,69 @@ const pageSize = 20
 var googleSortOrders = []string{"", "3", "8"}
 
 // hotelSearchKey builds a singleflight dedup key from the search parameters.
-func hotelSearchKey(location, checkIn, checkOut string, guests int) string {
-	return fmt.Sprintf("hotel|%s|%s|%s|%d", location, checkIn, checkOut, guests)
+func hotelSearchKey(location string, opts HotelSearchOptions) string {
+	return strings.Join([]string{
+		"hotel",
+		location,
+		opts.CheckIn,
+		opts.CheckOut,
+		strconv.Itoa(opts.Guests),
+		strconv.Itoa(opts.Stars),
+		opts.Sort,
+		opts.Currency,
+		strconv.FormatFloat(opts.MinPrice, 'f', -1, 64),
+		strconv.FormatFloat(opts.MaxPrice, 'f', -1, 64),
+		strconv.FormatFloat(opts.MinRating, 'f', -1, 64),
+		strconv.FormatFloat(opts.MaxDistanceKm, 'f', -1, 64),
+		hotelKeyStringSlice(normalizeHotelAmenityFilters(opts.Amenities)),
+		strconv.FormatFloat(opts.CenterLat, 'f', 6, 64),
+		strconv.FormatFloat(opts.CenterLon, 'f', 6, 64),
+		strconv.FormatBool(opts.EnrichAmenities),
+		strconv.Itoa(opts.EnrichLimit),
+		strconv.Itoa(hotelPageLimit(opts.MaxPages)),
+		strconv.FormatBool(opts.FreeCancellation),
+		opts.PropertyType,
+		strings.ToLower(strings.TrimSpace(opts.Brand)),
+		strconv.FormatBool(opts.EcoCertified),
+		strconv.Itoa(opts.MinBedrooms),
+		strconv.Itoa(opts.MinBathrooms),
+		strconv.Itoa(opts.MinBeds),
+		opts.RoomType,
+		strconv.FormatBool(opts.Superhost),
+		strconv.FormatBool(opts.InstantBook),
+		strconv.Itoa(opts.MaxDistanceM),
+		strconv.FormatBool(opts.Sustainable),
+		strconv.FormatBool(opts.MealPlan),
+		strconv.FormatBool(opts.IncludeSoldOut),
+	}, "|")
+}
+
+func hotelPageLimit(requested int) int {
+	pageLimit := maxPages
+	if requested > 0 && requested < maxPages {
+		pageLimit = requested
+	}
+	return pageLimit
+}
+
+func normalizeHotelAmenityFilters(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized = append(normalized, strings.ToLower(strings.TrimSpace(value)))
+	}
+	return normalized
+}
+
+func hotelKeyStringSlice(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	sorted := append([]string(nil), values...)
+	sort.Strings(sorted)
+	return strings.Join(sorted, ",")
 }
 
 // SearchHotelsWithClient is like SearchHotels but reuses the provided client.
@@ -200,42 +264,38 @@ func SearchHotelsWithClient(ctx context.Context, client *batchexec.Client, locat
 		return nil, fmt.Errorf("parse check-out date: %w", err)
 	}
 
-	key := hotelSearchKey(location, opts.CheckIn, opts.CheckOut, opts.Guests)
-	v, sfErr, _ := hotelGroup.Do(key, func() (any, error) {
-		return searchHotelsCore(ctx, client, location, opts)
+	key := hotelSearchKey(location, opts)
+	return doHotelSearchSingleflight(ctx, key, func(sharedCtx context.Context) (*models.HotelSearchResult, error) {
+		return searchHotelsCore(sharedCtx, client, location, opts)
 	})
-	if sfErr != nil {
-		return nil, sfErr
+}
+
+func doHotelSearchSingleflight(ctx context.Context, key string, fn func(context.Context) (*models.HotelSearchResult, error)) (*models.HotelSearchResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	// singleflight.Do returns the same *HotelSearchResult to all callers that
-	// coalesce on the same key. Callers mutate result.Hotels and result.Count
-	// (e.g. preferences.FilterHotels post-processing), which would race across
-	// concurrent callers. Return a shallow copy per caller: a fresh struct
-	// header with its own Hotels slice header so Count / Hotels writes are
-	// caller-private. The underlying HotelResult elements are treated as
-	// immutable after search completes and remain safely shared.
-	shared := v.(*models.HotelSearchResult)
-	if shared == nil {
-		return nil, nil
+
+	ch := hotelGroup.DoChan(key, func() (any, error) {
+		sharedCtx, cancel := searchctx.DetachedWithin(ctx, sharedHotelSearchTimeout)
+		defer cancel()
+		return fn(sharedCtx)
+	})
+
+	select {
+	case <-ctx.Done():
+		// The winner keeps running until the detached shared deadline expires; if
+		// the caller times out first, forget the key so later callers do not join
+		// that doomed execution.
+		hotelGroup.Forget(key)
+		return nil, ctx.Err()
+	case res := <-ch:
+		return sharedHotelResult(res.Val, res.Err)
 	}
-	cp := *shared
-	if shared.Hotels != nil {
-		cp.Hotels = make([]models.HotelResult, len(shared.Hotels))
-		copy(cp.Hotels, shared.Hotels)
-	}
-	if shared.ProviderStatuses != nil {
-		cp.ProviderStatuses = make([]models.ProviderStatus, len(shared.ProviderStatuses))
-		copy(cp.ProviderStatuses, shared.ProviderStatuses)
-	}
-	return &cp, nil
 }
 
 // searchHotelsCore performs the actual hotel search without singleflight wrapping.
 func searchHotelsCore(ctx context.Context, client *batchexec.Client, location string, opts HotelSearchOptions) (*models.HotelSearchResult, error) {
-	pageLimit := maxPages
-	if opts.MaxPages > 0 && opts.MaxPages < maxPages {
-		pageLimit = opts.MaxPages
-	}
+	pageLimit := hotelPageLimit(opts.MaxPages)
 
 	// Determine which sort orders to use. When MaxPages is 1 (compound
 	// commands that only need the cheapest result), skip sort diversity.
@@ -460,6 +520,54 @@ func searchHotelsCore(ctx context.Context, client *batchexec.Client, location st
 		Hotels:           hotels,
 		ProviderStatuses: providerStatuses,
 	}, nil
+}
+
+func cloneHotelSearchResult(shared *models.HotelSearchResult) *models.HotelSearchResult {
+	if shared == nil {
+		return nil
+	}
+
+	// singleflight.Do shares the winner's *HotelSearchResult pointer across all
+	// callers. Trip planning and preference filters rewrite Count / Hotels and may
+	// mutate nested hotel slices, so each caller needs an independent deep copy.
+	cp := *shared
+	if shared.Hotels != nil {
+		cp.Hotels = make([]models.HotelResult, len(shared.Hotels))
+		for i, hotel := range shared.Hotels {
+			hotelCopy := hotel
+			if hotel.Amenities != nil {
+				hotelCopy.Amenities = append([]string(nil), hotel.Amenities...)
+			}
+			if hotel.RoomTypes != nil {
+				hotelCopy.RoomTypes = make([]models.Room, len(hotel.RoomTypes))
+				for j, room := range hotel.RoomTypes {
+					roomCopy := room
+					if room.Amenities != nil {
+						roomCopy.Amenities = append([]string(nil), room.Amenities...)
+					}
+					hotelCopy.RoomTypes[j] = roomCopy
+				}
+			}
+			if hotel.Sources != nil {
+				hotelCopy.Sources = append([]models.PriceSource(nil), hotel.Sources...)
+			}
+			cp.Hotels[i] = hotelCopy
+		}
+	}
+	if shared.ProviderStatuses != nil {
+		cp.ProviderStatuses = append([]models.ProviderStatus(nil), shared.ProviderStatuses...)
+	}
+	return &cp
+}
+
+func sharedHotelResult(v any, err error) (*models.HotelSearchResult, error) {
+	if err != nil {
+		if r, ok := v.(*models.HotelSearchResult); ok {
+			return cloneHotelSearchResult(r), err
+		}
+		return nil, err
+	}
+	return cloneHotelSearchResult(v.(*models.HotelSearchResult)), nil
 }
 
 // fetchHotelPage fetches a single page of hotel results at the given offset.

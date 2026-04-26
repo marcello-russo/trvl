@@ -26,9 +26,7 @@ type HealthEntry struct {
 	LatencyMs int64  `json:"latency_ms"`
 	Results   int    `json:"results,omitempty"`
 	Error     string `json:"error,omitempty"`
-	// HintCode is the typed FixHintCode classification (MIK-3074),
-	// persisted as a string so the JSONL log stays self-describing.
-	HintCode string `json:"hint_code,omitempty"`
+	HintCode  string `json:"hint_code,omitempty"` // typed root-cause code when status != "ok"
 }
 
 // ProviderHealth is the per-provider aggregate computed by HealthSummary.
@@ -41,8 +39,7 @@ type ProviderHealth struct {
 	SuccessRate  float64 `json:"success_rate"`
 	AvgLatencyMs int64   `json:"avg_latency_ms"`
 	LastError    string  `json:"last_error,omitempty"`
-	// LastHintCode is the most recent typed classification (MIK-3074).
-	LastHintCode string `json:"last_hint_code,omitempty"`
+	LastHintCode string  `json:"last_hint_code,omitempty"` // most recent root-cause code for failures
 }
 
 // healthWriter is the package-level singleton that owns the write goroutine.

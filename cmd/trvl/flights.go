@@ -14,12 +14,11 @@ import (
 	"github.com/MikkoParkkola/trvl/internal/deals"
 	"github.com/MikkoParkkola/trvl/internal/destinations"
 	"github.com/MikkoParkkola/trvl/internal/flights"
-	"github.com/MikkoParkkola/trvl/internal/flights/afklm"
 	"github.com/MikkoParkkola/trvl/internal/hacks"
-	"github.com/MikkoParkkola/trvl/internal/tripsearch"
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/points"
 	"github.com/MikkoParkkola/trvl/internal/preferences"
+	"github.com/MikkoParkkola/trvl/internal/scoring"
 	"github.com/spf13/cobra"
 )
 
@@ -34,31 +33,20 @@ func flightsCmd() *cobra.Command {
 		format         string
 		targetCurrency string
 		compareCabins  bool
-		provider       string
-		award          bool
-		awardCookies   string
-		homeFan         bool
-		railFly         bool
-		minLayoverStr   string
-		layoverAirports []string
-		noEarlyConn     bool
-		loungeRequired  bool
-		firstResult     bool
+		explain        bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "flights ORIGIN DESTINATION DATE",
-		Short: "Search flights between airports or cities (supports multi-airport)",
-		Long: `Search flights between airports or cities on a specific date.
+		Short: "Search flights between airports (supports multi-airport)",
+		Long: `Search flights between airports on a specific date.
 
-ORIGIN and DESTINATION are IATA codes or city names, comma-separated for multi-airport.
+ORIGIN and DESTINATION are IATA codes, comma-separated for multi-airport.
 DATE is the departure date in YYYY-MM-DD format.
 
 Examples:
   trvl flights HEL NRT 2026-06-15
   trvl flights AMS,EIN,ANR HEL,TKU,TLL 2026-06-15
-  trvl flights Paris Tokyo 2026-06-15
-  trvl flights "New York" London 2026-06-15
   trvl flights HEL NRT 2026-06-15 --return 2026-06-22
   trvl flights HEL NRT 2026-06-15 --cabin business --stops nonstop`,
 		Args: cobra.ExactArgs(3),
@@ -72,30 +60,9 @@ Examples:
 				}
 			}
 
-			origins := flights.ParseFlightLocations(originArg)
-			destinations := flights.ParseFlightLocations(args[1])
+			origins := flights.ParseAirports(originArg)
+			destinations := flights.ParseAirports(args[1])
 			date := args[2]
-
-			// --home-fan: delegate to internal/hunt so CLI and MCP share the
-			// single implementation of the home-airport fan-out rule.
-			if homeFan {
-				if prefs, err := preferences.Load(); err == nil {
-					if expanded, eerr := tripsearch.ExpandOrigins(strings.Join(origins, ","), prefs); eerr == nil {
-						origins = expanded
-					}
-				}
-			}
-
-			// --rail-fly: delegate to internal/hunt so rail+fly origin logic
-			// (ZYR/ANR/BRU when AMS present) lives in one place.
-			if railFly {
-				origins = tripsearch.AddRailFlyOrigins(origins)
-			}
-
-			// --award: Flying Blue miles price scanner across a date or month range.
-			if award {
-				return runAwardScan(cmd.Context(), origins[0], destinations[0], date, awardCookies, format)
-			}
 
 			cabinClass, err := models.ParseCabinClass(cabin)
 			if err != nil {
@@ -113,61 +80,12 @@ Examples:
 			}
 
 			opts := flights.SearchOptions{
-				ReturnDate:  returnDate,
-				CabinClass:  cabinClass,
-				MaxStops:    stops,
-				SortBy:      sort,
-				Airlines:    airlines,
-				Adults:      adults,
-				Currency:    targetCurrency,
-				FirstResult: firstResult,
-			}
-
-			var result *models.FlightSearchResult
-
-			// --provider afklm: route to AF-KLM Offers API provider.
-			if strings.EqualFold(provider, "afklm") {
-				p, provErr := afklm.NewProvider()
-				if provErr == afklm.ErrNoCredential {
-					fmt.Println("AF-KLM provider not enabled. Sign up for a free personal API key at https://developer.airfranceklm.com then store it via: security add-generic-password -a $USER -s afklm-api-key -w <your_key>")
-					return nil
-				}
-				if provErr != nil {
-					return fmt.Errorf("afklm provider: %w", provErr)
-				}
-				mopts := models.FlightSearchOptions{
-					ReturnDate: opts.ReturnDate,
-					CabinClass: opts.CabinClass,
-					MaxStops:   opts.MaxStops,
-					SortBy:     opts.SortBy,
-					Airlines:   opts.Airlines,
-					Adults:     opts.Adults,
-					Currency:   opts.Currency,
-				}
-				// Fan out across all origins (rail-fly adds ZYR/ANR/BRU) and all destinations.
-				// Merge results into a single FlightSearchResult ranked by price.
-				result = &models.FlightSearchResult{Success: true, TripType: "one_way"}
-				if opts.ReturnDate != "" {
-					result.TripType = "round_trip"
-				}
-				for _, o := range origins {
-					for _, d := range destinations {
-						r, rerr := p.SearchFlights(cmd.Context(), o, d, date, mopts)
-						if rerr != nil || r == nil || !r.Success {
-							continue
-						}
-						result.Flights = append(result.Flights, r.Flights...)
-					}
-				}
-				result.Count = len(result.Flights)
-				if result.Count == 0 {
-					result.Success = false
-					result.Error = "no flights returned from afklm for any origin/destination combination"
-				}
-				if format == "json" {
-					return models.FormatJSON(os.Stdout, result)
-				}
-				return printFlightsTable(cmd.Context(), strings.Join(origins, ","), strings.Join(destinations, ","), targetCurrency, result)
+				ReturnDate: returnDate,
+				CabinClass: cabinClass,
+				MaxStops:   stops,
+				SortBy:     sort,
+				Airlines:   airlines,
+				Adults:     adults,
 			}
 
 			// --compare-cabins: search all cabin classes in parallel.
@@ -175,6 +93,7 @@ Examples:
 				return runCabinComparison(cmd.Context(), origins, destinations, date, opts, format)
 			}
 
+			var result *models.FlightSearchResult
 			if len(origins) > 1 || len(destinations) > 1 {
 				result, err = flights.SearchMultiAirport(cmd.Context(), origins, destinations, date, opts)
 			} else {
@@ -182,30 +101,6 @@ Examples:
 			}
 			if err != nil {
 				return err
-			}
-
-			// Apply Mikko-mental-model post-search filters via internal/hunt so
-			// CLI and MCP share the same filter stack. Pre-validate duration
-			// string here to preserve the specific --min-layover error message.
-			if result != nil && result.Success && len(result.Flights) > 0 {
-				mins := 0
-				if minLayoverStr != "" {
-					d, perr := time.ParseDuration(minLayoverStr)
-					if perr != nil {
-						return fmt.Errorf("invalid --min-layover %q: %w", minLayoverStr, perr)
-					}
-					mins = int(d.Minutes())
-				}
-				prefs, _ := preferences.Load()
-				req := tripsearch.Request{
-					MinLayoverMinutes: mins,
-					LayoverAirports:   layoverAirports,
-					LoungeRequired:    loungeRequired,
-					NoEarlyConnection: noEarlyConn,
-				}
-				flts, _ := tripsearch.ApplyFilters(result.Flights, req, prefs)
-				result.Flights = flts
-				result.Count = len(flts)
 			}
 
 			// Cache best result for `trvl share --last`.
@@ -230,16 +125,11 @@ Examples:
 				})
 			}
 
-			if opts.FirstResult && result != nil && result.Success {
-				result.Flights = flights.FirstPricedResult(result.Flights)
-				result.Count = len(result.Flights)
-			}
-
 			if format == "json" {
 				return models.FormatJSON(os.Stdout, result)
 			}
 
-			if err := printFlightsTable(cmd.Context(), strings.Join(origins, ","), strings.Join(destinations, ","), targetCurrency, result); err != nil {
+			if err := printFlightsTable(cmd.Context(), strings.Join(origins, ","), strings.Join(destinations, ","), targetCurrency, result, explain); err != nil {
 				return err
 			}
 
@@ -263,18 +153,7 @@ Examples:
 	cmd.Flags().StringVar(&format, "format", "table", "Output format: table, json")
 	cmd.Flags().StringVar(&targetCurrency, "currency", "", "Convert prices to this currency (e.g. EUR, USD). Empty = show API default")
 	cmd.Flags().BoolVar(&compareCabins, "compare-cabins", false, "Compare prices across all cabin classes (economy, premium, business, first)")
-	cmd.Flags().StringVar(&provider, "provider", "", "Flight data provider (e.g. afklm). Default: Google Flights")
-	cmd.Flags().BoolVar(&homeFan, "home-fan", false, "Expand origin to all home + nearby airports from preferences (e.g. AMS+EIN, HEL+TKU+TMP+TLL+ARN)")
-	cmd.Flags().BoolVar(&railFly, "rail-fly", false, "KL/AF rail+fly: also search ZYR (Brussels-Midi station), ANR, BRU as origins via AFKL provider. Requires origin to include AMS.")
-	cmd.Flags().StringVar(&minLayoverStr, "min-layover", "", "Only show flights with at least this layover duration (e.g. 12h, 90m)")
-	cmd.Flags().StringSliceVar(&layoverAirports, "layover-at", nil, "Restrict qualifying layovers to these airports (IATA codes, comma list)")
-	cmd.Flags().BoolVar(&noEarlyConn, "no-early-connection", false, "After overnight layover (≥8h), require next departure at or after preferences.early_connection_floor (default 10:00) — the 'unhurried wake + breakfast' rule")
-	cmd.Flags().BoolVar(&noEarlyConn, "no-aamuyo", false, "Deprecated alias for --no-early-connection")
-	_ = cmd.Flags().MarkHidden("no-aamuyo")
-	cmd.Flags().BoolVar(&loungeRequired, "lounge-required", false, "Drop flights where any layover airport lacks lounge coverage for your cards")
-	cmd.Flags().BoolVar(&award, "award", false, "Scan Flying Blue miles prices. DATE is a month (2026-06) or a day (2026-06-15). Requires KLM session cookies via AFKL_KLM_COOKIES or --award-cookies.")
-	cmd.Flags().StringVar(&awardCookies, "award-cookies", "", "Raw KLM session Cookie header for award search (alternative to AFKL_KLM_COOKIES env var)")
-	cmd.Flags().BoolVar(&firstResult, "first", false, "Return only the first result with a valid price (respects --sort order)")
+	cmd.Flags().BoolVar(&explain, "explain", false, "Show per-factor profile match breakdown for each result")
 
 	cmd.ValidArgsFunction = airportCompletion
 
@@ -283,7 +162,7 @@ Examples:
 
 // printFlightsTable renders flight results as an ASCII table.
 // If targetCurrency is set and differs from API currency, converts prices.
-func printFlightsTable(ctx context.Context, origin, destination, targetCurrency string, result *models.FlightSearchResult) error {
+func printFlightsTable(ctx context.Context, origin, destination, targetCurrency string, result *models.FlightSearchResult, explain bool) error {
 	if !result.Success {
 		fmt.Fprintf(os.Stderr, "Search failed: %s\n", result.Error)
 		return nil
@@ -456,6 +335,32 @@ func printFlightsTable(ctx context.Context, origin, destination, targetCurrency 
 			printMilesEarning(prefs, origin, destination, cheapest)
 		}
 	}
+
+	// --explain: per-flight profile match breakdown.
+	if explain {
+		fmt.Println()
+		// Determine primary destination IATA for scoring (first element if multi-airport).
+		destCode := destination
+		if idx := strings.Index(destination, ","); idx >= 0 {
+			destCode = destination[:idx]
+		}
+		for i, f := range result.Flights {
+			matchScore, breakdown := scoring.ComputeProfileMatch(prefs, scoring.DiscoverInput{
+				AirportCode:  destCode,
+				FlightPrice:  f.Price,
+				Total:        f.Price,
+				Stops:        f.Stops,
+				DepartTime:   flightDepartHHMM(f),
+				AirlineCodes: flightAirlineCodes(f),
+			})
+			label := fmt.Sprintf("#%d", i+1)
+			if len(f.Legs) > 0 && f.Legs[0].Airline != "" {
+				label = fmt.Sprintf("#%d %s", i+1, f.Legs[0].Airline)
+			}
+			printMatchBreakdown(label, matchScore, breakdown)
+		}
+	}
+
 	return nil
 }
 
@@ -749,4 +654,39 @@ func hackTypeLabel(t string) string {
 	default:
 		return strings.ReplaceAll(t, "_", " ")
 	}
+}
+
+// flightDepartHHMM extracts the "HH:MM" clock time from the first leg's
+// DepartureTime, which may be "2006-01-02T15:04" or similar ISO-ish formats.
+func flightDepartHHMM(f models.FlightResult) string {
+	if len(f.Legs) == 0 {
+		return ""
+	}
+	dt := f.Legs[0].DepartureTime
+	// ISO datetime: "2026-06-15T06:55" or "2026-06-15T06:55:00"
+	if len(dt) >= len("2006-01-02T15:04") {
+		clock := dt[len("2006-01-02T"):]
+		if len(clock) > 5 {
+			clock = clock[:5]
+		}
+		return clock
+	}
+	// Already HH:MM.
+	if len(dt) == 5 && dt[2] == ':' {
+		return dt
+	}
+	return ""
+}
+
+// flightAirlineCodes returns the unique IATA airline codes across all legs.
+func flightAirlineCodes(f models.FlightResult) []string {
+	seen := make(map[string]bool, len(f.Legs))
+	codes := make([]string, 0, len(f.Legs))
+	for _, leg := range f.Legs {
+		if leg.AirlineCode != "" && !seen[leg.AirlineCode] {
+			seen[leg.AirlineCode] = true
+			codes = append(codes, leg.AirlineCode)
+		}
+	}
+	return codes
 }

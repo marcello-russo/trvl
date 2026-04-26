@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -94,4 +96,35 @@ func retryAfterOrDefault(value string, now time.Time) time.Duration {
 		return retryAfterDefaultDelay
 	}
 	return d
+}
+
+// recordRateLimit records a 429 response for this provider. Every
+// rateLimitConsecutiveThreshold consecutive 429s halves the limiter rate,
+// but never below rateLimitFloorRPS.
+func (pc *providerClient) recordRateLimit(now time.Time) {
+	pc.rl429Mu.Lock()
+	defer pc.rl429Mu.Unlock()
+	pc.consecutive429++
+	pc.last429 = now
+	if pc.consecutive429%rateLimitConsecutiveThreshold == 0 {
+		current := float64(pc.limiter.Limit())
+		next := current / 2.0
+		if next < rateLimitFloorRPS {
+			next = rateLimitFloorRPS
+		}
+		pc.limiter.SetLimit(rate.Limit(next))
+	}
+}
+
+// recordRateLimitSuccess records a successful (non-429) response. It resets
+// the consecutive counter and, if rateLimitCooldown has elapsed since the last
+// 429, restores the limiter to the provider's configured default rate.
+func (pc *providerClient) recordRateLimitSuccess(now time.Time) {
+	pc.rl429Mu.Lock()
+	defer pc.rl429Mu.Unlock()
+	pc.consecutive429 = 0
+	if !pc.last429.IsZero() && now.Sub(pc.last429) >= rateLimitCooldown {
+		pc.limiter.SetLimit(rate.Limit(pc.defaultRPS))
+		pc.last429 = time.Time{}
+	}
 }

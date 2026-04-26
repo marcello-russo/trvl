@@ -8,6 +8,7 @@ import (
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/optimizer"
 	"github.com/MikkoParkkola/trvl/internal/preferences"
+	"github.com/MikkoParkkola/trvl/internal/scoring"
 	"github.com/spf13/cobra"
 )
 
@@ -31,6 +32,7 @@ Examples:
 	cmd.Flags().Int("guests", 1, "Number of guests")
 	cmd.Flags().String("currency", "", "Display currency")
 	cmd.Flags().Int("results", 5, "Number of results")
+	cmd.Flags().Bool("explain", false, "Show per-factor profile match breakdown for each result")
 	_ = cmd.MarkFlagRequired("depart")
 	return cmd
 }
@@ -93,11 +95,12 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	printOptimizeResults(result)
+	explain, _ := cmd.Flags().GetBool("explain")
+	printOptimizeResults(result, dest, prefs, explain)
 	return nil
 }
 
-func printOptimizeResults(result *optimizer.OptimizeResult) {
+func printOptimizeResults(result *optimizer.OptimizeResult, destCode string, prefs *preferences.Preferences, explain bool) {
 	models.Banner(os.Stdout, "⚡", "Optimize", fmt.Sprintf("Found %d booking strategies", len(result.Options)))
 	fmt.Println()
 
@@ -149,6 +152,29 @@ func printOptimizeResults(result *optimizer.OptimizeResult) {
 				"Direct booking is already the cheapest: %s %.0f",
 				result.Baseline.Currency, result.Baseline.AllInCost,
 			))
+		}
+	}
+
+	// --explain: per-strategy profile match breakdown.
+	if explain {
+		fmt.Println()
+		for i, opt := range result.Options {
+			// Extract destination from legs: last flight leg's destination.
+			code := destCode
+			if len(opt.Legs) > 0 {
+				for j := len(opt.Legs) - 1; j >= 0; j-- {
+					if strings.EqualFold(opt.Legs[j].Type, "flight") && opt.Legs[j].To != "" {
+						code = opt.Legs[j].To
+						break
+					}
+				}
+			}
+			matchScore, breakdown := scoring.ComputeProfileMatch(prefs, scoring.DiscoverInput{
+				AirportCode: code,
+				FlightPrice: opt.AllInCost,
+				Total:       opt.AllInCost,
+			})
+			printMatchBreakdown(fmt.Sprintf("#%d %s", i+1, opt.Strategy), matchScore, breakdown)
 		}
 	}
 }

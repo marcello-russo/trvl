@@ -357,7 +357,7 @@ func TestDiscoverOptions_MaxNightsClamped(t *testing.T) {
 // ============================================================
 
 func TestBuildDiscoverReasoning_RatingAndSlack(t *testing.T) {
-	got := buildDiscoverReasoning(0.8, 0.6, 4.2, 150, "EUR")
+	got := buildDiscoverReasoning(4.2, 150, "EUR")
 	if !strings.Contains(got, "4.2") {
 		t.Errorf("expected rating in reasoning, got %q", got)
 	}
@@ -367,14 +367,14 @@ func TestBuildDiscoverReasoning_RatingAndSlack(t *testing.T) {
 }
 
 func TestBuildDiscoverReasoning_ZeroRatingZeroSlack(t *testing.T) {
-	got := buildDiscoverReasoning(0, 0, 0, 0, "EUR")
+	got := buildDiscoverReasoning(0, 0, "EUR")
 	if got != "" {
 		t.Errorf("expected empty reasoning when rating=0 and slack=0, got %q", got)
 	}
 }
 
 func TestBuildDiscoverReasoning_OnlyRating(t *testing.T) {
-	got := buildDiscoverReasoning(0, 0, 3.8, 0, "USD")
+	got := buildDiscoverReasoning(3.8, 0, "USD")
 	if !strings.Contains(got, "3.8") {
 		t.Errorf("expected rating in reasoning, got %q", got)
 	}
@@ -384,7 +384,7 @@ func TestBuildDiscoverReasoning_OnlyRating(t *testing.T) {
 }
 
 func TestBuildDiscoverReasoning_OnlySlack(t *testing.T) {
-	got := buildDiscoverReasoning(0, 0, 0, 200, "GBP")
+	got := buildDiscoverReasoning(0, 200, "GBP")
 	if !strings.Contains(got, "GBP") {
 		t.Errorf("expected currency in reasoning, got %q", got)
 	}

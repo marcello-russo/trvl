@@ -20,7 +20,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -83,36 +82,7 @@ const (
 	// round-trip ≤ 8s + WAF JS solver ≤ 5s = 28s worst case. 30s gives
 	// 2s margin without exceeding the MCP client's typical 60s call budget.
 	perProviderTimeout = 30 * time.Second
-
-	// defaultProviderConcurrency caps how many provider searches run
-	// in parallel within a single SearchHotels call (MIK-3072). Without
-	// this bound, a registry with 10+ providers fans out 10+ goroutines
-	// each holding an HTTP connection, browser cookie lock, and WAF
-	// solver state — peak ~40 goroutines, ~10 concurrent TCP/TLS dials.
-	//
-	// Why 8: empirically lets 5 typical providers (Booking, Airbnb,
-	// Hostelworld, Trivago, Google Hotels) run fully in parallel while
-	// throttling the long tail; matches mcp/server.go maxConcurrentTools=4
-	// at the outer layer (so worst case is 4 × 8 = 32 in-flight provider
-	// goroutines across simultaneous MCP tool calls).
-	defaultProviderConcurrency = 8
-
-	// providerConcurrencyEnv overrides defaultProviderConcurrency at
-	// runtime. Useful for benchmarks and constrained CI. Values <= 0
-	// or non-numeric fall back to the default.
-	providerConcurrencyEnv = "TRVL_PROVIDER_CONCURRENCY"
 )
-
-// providerConcurrency returns the active concurrency cap, honouring the
-// TRVL_PROVIDER_CONCURRENCY environment variable when present.
-func providerConcurrency() int {
-	if v := os.Getenv(providerConcurrencyEnv); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
-	}
-	return defaultProviderConcurrency
-}
 
 // HotelFilterParams carries search filter values that should be passed through
 // to external provider URL templates and query parameters via ${var} substitution.
@@ -144,71 +114,7 @@ type Runtime struct {
 	registry *Registry
 	clients  map[string]*providerClient
 	mu       sync.RWMutex
-	// inflight is the live count of provider goroutines actively running
-	// a search (post-semaphore-acquire, pre-result-emit). Surfaced as the
-	// "provider_concurrent_inflight" slog gauge for MIK-3072.
 	inflight atomic.Int64
-}
-
-// InflightProviders returns the current number of provider goroutines
-// actively executing a search. Exposed for tests and observability.
-func (rt *Runtime) InflightProviders() int64 {
-	return rt.inflight.Load()
-}
-
-// recordRateLimit increments the consecutive-429 counter and, once we cross
-// rateLimitConsecutiveThreshold, halves the limiter's rps down to a floor.
-// Idempotent and goroutine-safe (MIK-3071).
-func (pc *providerClient) recordRateLimit(now time.Time) {
-	pc.rateLimitMu.Lock()
-	defer pc.rateLimitMu.Unlock()
-	pc.consecutive429++
-	pc.lastRateLimit = now
-	if pc.consecutive429 < rateLimitConsecutiveThreshold {
-		return
-	}
-	current := float64(pc.limiter.Limit())
-	next := current / 2
-	if next < rateLimitFloorRPS {
-		next = rateLimitFloorRPS
-	}
-	if next >= current {
-		return
-	}
-	pc.limiter.SetLimit(rate.Limit(next))
-	slog.Warn("provider rate-limit halved",
-		"provider", pc.config.ID,
-		"consecutive_429s", pc.consecutive429,
-		"rps_before", current,
-		"rps_after", next,
-		"floor", rateLimitFloorRPS)
-}
-
-// recordRateLimitSuccess clears the consecutive-429 counter and, when more
-// than rateLimitCooldown has elapsed since the last 429, resets the limiter
-// back to the configured default rps (MIK-3071).
-func (pc *providerClient) recordRateLimitSuccess(now time.Time) {
-	pc.rateLimitMu.Lock()
-	defer pc.rateLimitMu.Unlock()
-	pc.consecutive429 = 0
-	if pc.lastRateLimit.IsZero() {
-		return
-	}
-	if now.Sub(pc.lastRateLimit) < rateLimitCooldown {
-		return
-	}
-	current := float64(pc.limiter.Limit())
-	if current >= pc.defaultRPS {
-		pc.lastRateLimit = time.Time{}
-		return
-	}
-	pc.limiter.SetLimit(rate.Limit(pc.defaultRPS))
-	pc.lastRateLimit = time.Time{}
-	slog.Info("provider rate-limit restored after cooldown",
-		"provider", pc.config.ID,
-		"rps_before", current,
-		"rps_after", pc.defaultRPS,
-		"cooldown", rateLimitCooldown)
 }
 
 // providerClient holds per-provider HTTP state.
@@ -225,13 +131,14 @@ type providerClient struct {
 	// and the auth cache must be invalidated — WAF cookies obtained for one
 	// dest_id are rejected for a different one.
 	lastPreflightURL string
-
-	// MIK-3071 adaptive rate limit state. defaultRPS captures the original
-	// configured rate so we can reset after the cooldown window.
-	rateLimitMu     sync.Mutex
-	consecutive429  int
-	lastRateLimit   time.Time
-	defaultRPS      float64
+	// defaultRPS is the configured rate for this provider; recordRateLimitSuccess
+	// uses it to restore the limiter after the cooldown period elapses.
+	defaultRPS float64
+	// consecutive429 counts uninterrupted 429 responses; reset on success.
+	consecutive429 int
+	// last429 records when the most recent 429 was received.
+	last429 time.Time
+	rl429Mu sync.Mutex
 }
 
 // NewRuntime creates a Runtime backed by the given registry.
@@ -347,6 +254,12 @@ func (rt *Runtime) getOrCreateClient(cfg *ProviderConfig) *providerClient {
 	return pc
 }
 
+// InflightProviders returns the number of provider goroutines currently
+// executing inside SearchHotels. Useful in tests to assert clean shutdown.
+func (rt *Runtime) InflightProviders() int {
+	return int(rt.inflight.Load())
+}
+
 // SearchHotels queries all hotel-category providers and returns combined results
 // along with per-provider status entries so the caller can surface failures to
 // the LLM for autonomous diagnosis. The optional filters parameter passes
@@ -366,11 +279,16 @@ func (rt *Runtime) SearchHotels(ctx context.Context, location string, lat, lon f
 		latencyMs int64
 	}
 
-	// Filter out circuit-broken providers up-front so the worker pool
-	// only enqueues work that will actually run. Skipped providers do
-	// not appear in statuses (existing behavior preserved).
-	live := make([]*ProviderConfig, 0, len(providers))
+	results := make(chan result, len(providers))
+	var wg sync.WaitGroup
+
+	// Semaphore bounds the number of concurrently executing provider calls.
+	sem := make(chan struct{}, providerConcurrency())
+
 	for _, cfg := range providers {
+		// Circuit breaker: skip providers that have failed repeatedly
+		// without any recent success. Prevents wasting 15-30s on preflight
+		// + WAF recovery for providers that are consistently down.
 		if cfg.ErrorCount >= circuitBreakerThreshold && !cfg.LastSuccess.IsZero() &&
 			time.Since(cfg.LastSuccess) > circuitBreakerCooldown {
 			slog.Info("circuit breaker: skipping provider",
@@ -379,56 +297,30 @@ func (rt *Runtime) SearchHotels(ctx context.Context, location string, lat, lon f
 				"last_success", cfg.LastSuccess.Format(time.RFC3339))
 			continue
 		}
-		live = append(live, cfg)
-	}
-
-	results := make(chan result, len(live))
-
-	// MIK-3072: worker-pool dispatch. Bounds peak goroutines to
-	// min(providerConcurrency, len(live)) instead of fanning out one
-	// goroutine per provider. Workers consume from `work` until ctx
-	// cancellation or channel close. The inflight gauge tracks how many
-	// workers are currently inside searchProvider (excludes blocked-on-
-	// channel-recv idle time).
-	workers := providerConcurrency()
-	if workers > len(live) {
-		workers = len(live)
-	}
-	work := make(chan *ProviderConfig)
-	var wg sync.WaitGroup
-
-	// Dispatcher: feeds work; respects ctx cancellation.
-	go func() {
-		defer close(work)
-		for _, cfg := range live {
+		wg.Add(1)
+		go func(cfg *ProviderConfig) {
+			defer wg.Done()
+			// Acquire semaphore slot, honouring ctx cancellation.
 			select {
-			case work <- cfg:
+			case sem <- struct{}{}:
 			case <-ctx.Done():
+				results <- result{id: cfg.ID, name: cfg.Name, err: ctx.Err()}
 				return
 			}
-		}
-	}()
-
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for cfg := range work {
-				cur := rt.inflight.Add(1)
-				slog.Debug("provider_concurrent_inflight",
-					"count", cur,
-					"cap", workers,
-					"provider", cfg.ID)
-				// Per-provider timeout: prevent any single provider from
-				// holding up the entire search.
-				provCtx, provCancel := context.WithTimeout(ctx, perProviderTimeout)
-				t0 := time.Now()
-				hotels, err := rt.searchProvider(provCtx, cfg, location, lat, lon, checkin, checkout, currency, guests, filters)
-				provCancel()
+			rt.inflight.Add(1)
+			defer func() {
+				<-sem
 				rt.inflight.Add(-1)
-				results <- result{hotels: hotels, err: err, id: cfg.ID, name: cfg.Name, latencyMs: time.Since(t0).Milliseconds()}
-			}
-		}()
+			}()
+			// Per-provider timeout: prevent any single provider from holding
+			// up the entire search. Covers the full preflight → auth → search
+			// → parse cascade including browser cookie reads and WAF solving.
+			provCtx, provCancel := context.WithTimeout(ctx, perProviderTimeout)
+			defer provCancel()
+			t0 := time.Now()
+			hotels, err := rt.searchProvider(provCtx, cfg, location, lat, lon, checkin, checkout, currency, guests, filters)
+			results <- result{hotels: hotels, err: err, id: cfg.ID, name: cfg.Name, latencyMs: time.Since(t0).Milliseconds()}
+		}(cfg)
 	}
 
 	go func() {
@@ -448,14 +340,14 @@ func (rt *Runtime) SearchHotels(ctx context.Context, location string, lat, lon f
 			if isTimeoutError(r.err) {
 				status = "timeout"
 			}
-			code, hint := classifyProviderError(r.err)
+			hintCode, hint := classifyProviderError(r.err)
 			LogHealth(HealthEntry{
 				Provider:  r.id,
 				Operation: "search",
 				Status:    status,
 				LatencyMs: r.latencyMs,
 				Error:     errMsg,
-				HintCode:  string(code),
+				HintCode:  string(hintCode),
 			})
 			statuses = append(statuses, models.ProviderStatus{
 				ID:          r.id,
@@ -463,7 +355,7 @@ func (rt *Runtime) SearchHotels(ctx context.Context, location string, lat, lon f
 				Status:      "error",
 				Error:       errMsg,
 				FixHint:     hint,
-				FixHintCode: string(code),
+				FixHintCode: string(hintCode),
 			})
 			if firstErr == nil {
 				firstErr = r.err
@@ -504,19 +396,9 @@ func isTimeoutError(err error) bool {
 		strings.Contains(msg, "timeout")
 }
 
-// providerFixHint returns an actionable LLM-readable hint for common
-// provider failures. Thin compatibility wrapper around the typed
-// classifier introduced in MIK-3074: callers that need both the code
-// and the message should call classifyProviderError directly.
-//
-// Kept exported-by-name within the package because several call sites
-// historically returned only the human-readable string. The underlying
-// classification logic now lives in fixhint.go and is tested in
-// fixhint_test.go; that single source of truth replaces the prior
-// inline switch over msg substrings (preflight / results_path / 403 /
-// 202 / rate-limit). Behavior is a strict superset: every prior bucket
-// still resolves to a non-empty hint, plus DNS / TLS / cookie / 429 /
-// shape are now distinguished and surface their own remediation text.
+// providerFixHint returns the human-readable hint for a provider error.
+// It delegates to classifyProviderError and is kept for backward compatibility
+// with any callers that only need the hint string.
 func providerFixHint(err error) string {
 	_, hint := classifyProviderError(err)
 	return hint
@@ -634,30 +516,14 @@ func (rt *Runtime) searchProvider(ctx context.Context, cfg *ProviderConfig, loca
 	// overwrite the browser's authenticated cookies in the jar — replacing a
 	// real-user session with a bot-classified one. This is the root cause of
 	// Booking.com returning 0 results despite having valid browser cookies.
-	// authSnapshot holds the per-call view of pc.authValues that was valid for
-	// THIS preflight invocation. Using this snapshot rather than re-reading
-	// pc.authValues later eliminates the MIK-3070 race in which a concurrent
-	// search to a different city (different ${city_id}) invalidates pc.authValues
-	// between our preflight return and our auth-vars read.
-	var authSnapshot map[string]string
 	if cfg.Auth != nil && cfg.Auth.Type == "preflight" {
 		skipPreflight := browserCookiesApplied && len(cfg.Auth.Extractions) == 0
 		if skipPreflight {
 			slog.Info("skipping preflight: browser cookies already loaded, no extractions needed",
 				"provider", cfg.ID)
-			authSnapshot = snapshotAuthValuesLocked(pc)
-		} else {
-			snap, err := rt.runPreflight(ctx, pc, vars)
-			if err != nil {
-				return nil, fmt.Errorf("preflight: %w", err)
-			}
-			authSnapshot = snap
+		} else if _, err := rt.runPreflight(ctx, pc, vars); err != nil {
+			return nil, fmt.Errorf("preflight: %w", err)
 		}
-	} else {
-		// Non-preflight auth (header tokens, env-loaded creds): snapshot what
-		// other code paths populated under lock so the read at the auth-vars
-		// substitution site below is consistent with the snapshot.
-		authSnapshot = snapshotAuthValuesLocked(pc)
 	}
 
 	// Add filter variables when provided. These allow provider URL
@@ -806,13 +672,11 @@ func (rt *Runtime) searchProvider(ctx context.Context, cfg *ProviderConfig, loca
 	}
 
 	// Add auth-extracted variables.
-	// Use authSnapshot (captured at preflight time) instead of re-reading
-	// pc.authValues here. A concurrent search to a different city can mutate
-	// pc.authValues between preflight return and this read; the snapshot is
-	// the values that were valid for OUR preflight URL. See MIK-3070.
-	for k, v := range authSnapshot {
+	pc.authMu.RLock()
+	for k, v := range pc.authValues {
 		vars["${"+k+"}"] = v
 	}
+	pc.authMu.RUnlock()
 
 	// Build endpoint URL. After substitution, strip any remaining ${...}
 	// placeholders and their preceding &/? separators so optional filter
@@ -924,67 +788,17 @@ func (rt *Runtime) searchProvider(ctx context.Context, cfg *ProviderConfig, loca
 		req.Header.Set("X-Personal-Use", "trvl personal noncommercial https://github.com/MikkoParkkola/trvl")
 	}
 
-	// Send request, with 429 + Retry-After retry loop (MIK-3071).
-	// We attempt the request up to 1 + max429Retries times; between attempts
-	// we sleep for Retry-After (or a sane default) and rebuild the body via
-	// req.GetBody. Adaptive halving of the per-provider rate limit happens
-	// inside pc.recordRateLimit so other in-flight goroutines back off too.
-	const max429Retries = 2
-	var resp *http.Response
-	var body []byte
-	for attempt := 0; ; attempt++ {
-		var doErr error
-		resp, doErr = pc.client.Do(req)
-		if doErr != nil {
-			return nil, fmt.Errorf("http request: %w", doErr)
-		}
-		body, err = decompressBody(resp, maxResponseBytes)
-		if err != nil {
-			resp.Body.Close()
-			return nil, fmt.Errorf("read response: %w", err)
-		}
-		resp.Body.Close()
-
-		if resp.StatusCode != http.StatusTooManyRequests {
-			break
-		}
-
-		// 429 path. Update adaptive limiter, sleep, then either retry or fail.
-		now := time.Now()
-		pc.recordRateLimit(now)
-		retryAfter := retryAfterOrDefault(resp.Header.Get("Retry-After"), now)
-		slog.Warn("provider rate-limited (429)",
-			"provider", cfg.ID,
-			"attempt", attempt+1,
-			"retry_after_s", retryAfter.Seconds(),
-			"max_attempts", max429Retries+1)
-
-		if attempt >= max429Retries {
-			return nil, fmt.Errorf("rate limit: %s returned 429 after %d attempts (last retry-after %v)",
-				cfg.ID, max429Retries+1, retryAfter)
-		}
-
-		select {
-		case <-time.After(retryAfter):
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-
-		// Rebuild request body for the next attempt. NewRequestWithContext
-		// auto-sets GetBody when the body is *strings.Reader / *bytes.Reader,
-		// so this is safe for our POST/JSON providers.
-		if req.GetBody != nil {
-			fresh, gbErr := req.GetBody()
-			if gbErr != nil {
-				return nil, fmt.Errorf("rate limit: rebuild body: %w", gbErr)
-			}
-			req.Body = fresh
-		}
+	// Send request.
+	resp, err := pc.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
 	}
-	// Non-429 path: clear the consecutive-429 counter and possibly restore
-	// the configured rate after the cooldown window.
-	pc.recordRateLimitSuccess(time.Now())
+	defer resp.Body.Close()
 
+	body, err := decompressBody(resp, maxResponseBytes)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	slog.Debug("search response", "provider", cfg.ID, "status", resp.StatusCode, "body_len", len(body),
 		"content_encoding", resp.Header.Get("Content-Encoding"),
 		"is_challenge", isAkamaiChallenge(resp.StatusCode, body))
@@ -1042,6 +856,25 @@ func (rt *Runtime) searchProvider(ctx context.Context, cfg *ProviderConfig, loca
 		if !recovered {
 			return nil, fmt.Errorf("http %d: WAF/JS challenge page — all cookie recovery tiers failed (provider %s)", resp.StatusCode, cfg.ID)
 		}
+	}
+
+	// Retry on HTTP 429 honouring the Retry-After header (MIK-3071).
+	const maxRetries429 = 2
+	for attempt := 0; attempt < maxRetries429 && resp.StatusCode == http.StatusTooManyRequests; attempt++ {
+		delay := retryAfterOrDefault(resp.Header.Get("Retry-After"), time.Now())
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		var retryErr error
+		resp, body, retryErr = doSearchRequest(ctx, pc.client, req)
+		if retryErr != nil {
+			return nil, retryErr
+		}
+	}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("rate limit: %d retries exhausted (http 429): %s", maxRetries429, string(body[:min(len(body), 200)]))
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

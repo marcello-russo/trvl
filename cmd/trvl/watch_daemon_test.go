@@ -4,14 +4,27 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/MikkoParkkola/trvl/internal/watch"
 )
 
 type stubWatchDaemonTicker struct {
 	ch      chan time.Time
 	stopped bool
+}
+
+type stubDaemonPriceChecker struct {
+	price    float64
+	currency string
+}
+
+func (c *stubDaemonPriceChecker) CheckPrice(context.Context, watch.Watch) (float64, string, string, error) {
+	return c.price, c.currency, "", nil
 }
 
 func (t *stubWatchDaemonTicker) Chan() <-chan time.Time {
@@ -118,4 +131,91 @@ func TestRunWatchDaemonRejectsInvalidInterval(t *testing.T) {
 	if got := err.Error(); got != "watch interval must be greater than zero" {
 		t.Fatalf("unexpected error: %q", got)
 	}
+}
+
+type blockingDaemonWebhookTransport struct {
+	started   chan struct{}
+	cancelled chan struct{}
+	once      sync.Once
+}
+
+func newBlockingDaemonWebhookTransport() *blockingDaemonWebhookTransport {
+	return &blockingDaemonWebhookTransport{
+		started:   make(chan struct{}),
+		cancelled: make(chan struct{}),
+	}
+}
+
+func (t *blockingDaemonWebhookTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.once.Do(func() {
+		close(t.started)
+	})
+	<-req.Context().Done()
+	close(t.cancelled)
+	return nil, req.Context().Err()
+}
+
+func installBlockingDaemonWebhookClient(t *testing.T) *blockingDaemonWebhookTransport {
+	t.Helper()
+
+	transport := newBlockingDaemonWebhookTransport()
+	oldClient := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: transport}
+	t.Cleanup(func() {
+		http.DefaultClient = oldClient
+	})
+	return transport
+}
+
+func waitForDaemonSignal(t *testing.T, ch <-chan struct{}, msg string) {
+	t.Helper()
+
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatal(msg)
+	}
+}
+
+func TestRunWatchCheckCycleWithRooms_WebhookUsesDaemonContext(t *testing.T) {
+	transport := installBlockingDaemonWebhookClient(t)
+
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	store, err := watch.DefaultStore()
+	if err != nil {
+		t.Fatalf("DefaultStore: %v", err)
+	}
+	if _, err := store.Add(watch.Watch{
+		Type:        "flight",
+		Origin:      "HEL",
+		Destination: "NRT",
+		DepartDate:  "2099-07-01",
+		LastPrice:   500,
+		WebhookURL:  "http://example.test/webhook",
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = runWatchCheckCycleWithRooms(ctx, &stubDaemonPriceChecker{price: 450, currency: "EUR"}, nil, &watch.Notifier{Out: &bytes.Buffer{}})
+		close(done)
+	}()
+
+	waitForDaemonSignal(t, transport.started, "daemon webhook request did not start")
+	waitForDaemonSignal(t, done, "runWatchCheckCycleWithRooms did not return")
+
+	select {
+	case <-transport.cancelled:
+		t.Fatal("daemon webhook request was cancelled when the cycle timeout finished")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	cancel()
+	waitForDaemonSignal(t, transport.cancelled, "daemon webhook request did not observe daemon cancellation")
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/preferences"
 	"github.com/MikkoParkkola/trvl/internal/providers"
+	"github.com/MikkoParkkola/trvl/internal/scoring"
 	"github.com/spf13/cobra"
 )
 
@@ -57,6 +58,7 @@ Examples:
 	cmd.Flags().Bool("sustainable", false, "Only show eco/sustainable properties (Booking)")
 	cmd.Flags().Bool("meal-plan", false, "Only show properties with breakfast/meals included (Booking)")
 	cmd.Flags().Bool("include-sold-out", false, "Include sold-out properties (Booking)")
+	cmd.Flags().Bool("explain", false, "Show per-factor profile match breakdown for each result")
 
 	_ = cmd.MarkFlagRequired("checkin")
 	_ = cmd.MarkFlagRequired("checkout")
@@ -108,6 +110,7 @@ func runHotels(cmd *cobra.Command, args []string) error {
 	sustainable, _ := cmd.Flags().GetBool("sustainable")
 	mealPlan, _ := cmd.Flags().GetBool("meal-plan")
 	includeSoldOut, _ := cmd.Flags().GetBool("include-sold-out")
+	explain, _ := cmd.Flags().GetBool("explain")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -198,7 +201,7 @@ func runHotels(cmd *cobra.Command, args []string) error {
 		return models.FormatJSON(os.Stdout, result)
 	}
 
-	if err := formatHotelsTable(cmd.Context(), currency, result); err != nil {
+	if err := formatHotelsTable(cmd.Context(), currency, location, result, explain); err != nil {
 		return err
 	}
 
@@ -212,7 +215,7 @@ func runHotels(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func formatHotelsTable(ctx context.Context, targetCurrency string, result *models.HotelSearchResult) error {
+func formatHotelsTable(ctx context.Context, targetCurrency, location string, result *models.HotelSearchResult, explain bool) error {
 	if len(result.Hotels) == 0 {
 		fmt.Println("No hotels found.")
 		return nil
@@ -327,6 +330,23 @@ func formatHotelsTable(ctx context.Context, targetCurrency string, result *model
 			models.Summary(os.Stdout, strings.Join(parts, " · "))
 		}
 	}
+
+	// --explain: per-hotel profile match breakdown.
+	if explain {
+		fmt.Println()
+		prefs, _ := preferences.Load()
+		for i, h := range result.Hotels {
+			matchScore, breakdown := scoring.ComputeProfileMatch(prefs, scoring.DiscoverInput{
+				CityName:    location,
+				HotelPrice:  h.Price,
+				Total:       h.Price,
+				HotelRating: h.Rating,
+				HotelName:   h.Name,
+			})
+			printMatchBreakdown(fmt.Sprintf("#%d %s", i+1, truncateName(h.Name, 30)), matchScore, breakdown)
+		}
+	}
+
 	return nil
 }
 

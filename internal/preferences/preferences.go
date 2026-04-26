@@ -49,20 +49,18 @@ type Preferences struct {
 
 	// MIK-3083: payment cards held by the user, used by the
 	// internal/cards package to rank net cost after rewards on every
-	// priced result. Free-form list — the card-ranking package never
-	// inspects card numbers, just the per-MCC multipliers and FX fees.
+	// priced result.
 	PaymentCards []PaymentCard `json:"payment_cards,omitempty"`
 
 	// MIK-3082: per-program loyalty balance + status snapshot consumed
 	// by internal/loyalty to forecast points expiry and status renewal
-	// deadlines. Free-form — the loyalty package never inspects program
-	// internals beyond the public field set.
+	// deadlines.
 	LoyaltyBalances []LoyaltyBalance `json:"loyalty_balances,omitempty"`
 
 	// Travel style (extended)
-	DefaultCompanions int      `json:"default_companions"`          // 0 = solo, 1 = couple, 2+ = family/group
-	TripTypes         []string `json:"trip_types,omitempty"`        // "city_break", "beach", "adventure", "business", "remote_work"
-	SeatPreference    string   `json:"seat_preference"`             // "window", "aisle", "no_preference"
+	DefaultCompanions int      `json:"default_companions"`   // 0 = solo, 1 = couple, 2+ = family/group
+	TripTypes         []string `json:"trip_types,omitempty"` // "city_break", "beach", "adventure", "business", "remote_work"
+	SeatPreference    string   `json:"seat_preference"`      // "window", "aisle", "no_preference"
 
 	// Budget
 	BudgetPerNightMin float64 `json:"budget_per_night_min"` // min acceptable hotel price (filters too-cheap-to-trust)
@@ -76,8 +74,8 @@ type Preferences struct {
 	RedEyeOK           bool   `json:"red_eye_ok"`           // overnight flights acceptable?
 
 	// Identity
-	Nationality string   `json:"nationality"`          // ISO 3166-1 alpha-2 (e.g. "FI") — for visa warnings
-	Languages   []string `json:"languages,omitempty"`   // spoken languages (e.g. ["en", "fi", "sv"])
+	Nationality string   `json:"nationality"`         // ISO 3166-1 alpha-2 (e.g. "FI") — for visa warnings
+	Languages   []string `json:"languages,omitempty"` // spoken languages (e.g. ["en", "fi", "sv"])
 
 	// Context (free-text, not filtered but used for personalization)
 	PreviousTrips       []string `json:"previous_trips,omitempty"`       // cities/countries visited
@@ -95,27 +93,30 @@ type Preferences struct {
 	NearbyAirports map[string][]string `json:"nearby_airports,omitempty"`
 
 	// EarlyConnectionFloor is the earliest acceptable departure time (HH:MM)
-	// after an overnight layover (≥8h). Default "10:00" per Mikko's travel
-	// mental model ("unhurried wake + breakfast" rule). Per-user configurable.
+	// after an overnight layover (≥8h). Default "10:00".
 	EarlyConnectionFloor string `json:"early_connection_floor,omitempty"`
 
-	// AamuyoFloor is the deprecated alias for EarlyConnectionFloor, kept for
-	// backwards compatibility with profiles written before the rename.
+	// AamuyoFloor is the deprecated alias for EarlyConnectionFloor.
 	//
 	// Deprecated: Use EarlyConnectionFloor instead.
 	AamuyoFloor string `json:"aamuyo_floor,omitempty"`
 
-	// AirportAffinity tracks how often each origin airport has won a search.
-	// Key is the IATA code; value is the win count (capped at 100).
-	// Built up automatically by RecordWinningOrigin when the user omits the
-	// origin argument and lets trvl pick defaults. Empty by default; existing
-	// preferences files without this field deserialise to a nil map (back-compat
-	// guaranteed by omitempty).
+	// ProfileMatch scoring configuration.
 	//
-	// Decay is not implemented in v1. When affinity diverges from current
-	// travel patterns (e.g. after a city move), the user can clear this field
-	// from preferences.json or set individual values to 0.
-	AirportAffinity map[string]int `json:"airport_affinity,omitempty"`
+	// MatchWeights overrides the default factor weights used by scoring.ComputeProfileMatch.
+	// Only factors with a non-negative value are overridden; missing keys keep the default.
+	// Example: {"budget_fit": 30.0, "bucket_list_boost": 15.0}
+	MatchWeights map[string]float64 `json:"match_weights,omitempty"`
+
+	// AirportAffinity maps destination IATA codes to an affinity score in [0,1].
+	// Populated automatically as the user accepts or rejects suggestions.
+	// Example: {"BCN": 0.9, "WAW": 0.1}
+	AirportAffinity map[string]float64 `json:"airport_affinity,omitempty"`
+
+	// ExcludedDestinations is a list of airport codes or city names that are
+	// hard-excluded from all results (ProfileMatch returns 0 for these).
+	// The warsaw_filter factor reflects this exclusion in the score breakdown.
+	ExcludedDestinations []string `json:"excluded_destinations,omitempty"`
 }
 
 // FamilyMember represents a person the user may book travel for.
@@ -145,9 +146,7 @@ type FrequentFlyerStatus struct {
 }
 
 // PaymentCard captures the per-card metadata internal/cards needs to
-// rank net cost after rewards on a booking (MIK-3083). Field-for-field
-// compatible with cards.Card to keep wiring trivial — no card numbers
-// or PII are stored here, only multipliers and fee descriptors.
+// rank net cost after rewards on a booking (MIK-3083).
 type PaymentCard struct {
 	Name           string             `json:"name"`
 	MCCMultipliers map[string]float64 `json:"mcc_multipliers,omitempty"`
@@ -157,21 +156,19 @@ type PaymentCard struct {
 }
 
 // LoyaltyBalance mirrors loyalty.Balance for direct round-trip through
-// the preferences file. Loaded by internal/loyalty.Warnings to
-// forecast 60-day-ahead points expiry and status-renewal deadlines
-// (MIK-3082). The preferences package does not import internal/loyalty
-// to keep the dependency flow unidirectional.
+// the preferences file (MIK-3082).
 type LoyaltyBalance struct {
 	Program               string `json:"program"`
 	Balance               int    `json:"balance,omitempty"`
-	ExpiresAt             string `json:"expires_at,omitempty"` // ISO 8601 calendar date
+	ExpiresAt             string `json:"expires_at,omitempty"`
 	StatusTier            string `json:"status_tier,omitempty"`
-	StatusRenewalDeadline string `json:"status_renewal_deadline,omitempty"` // ISO 8601 calendar date
+	StatusRenewalDeadline string `json:"status_renewal_deadline,omitempty"`
 	QualSegmentsNeeded    int    `json:"qual_segments_needed,omitempty"`
 }
 
-// defaultPath returns the canonical preferences file path (~/.trvl/preferences.json).
-func defaultPath() (string, error) {
+// DefaultPath returns the canonical preferences file path
+// (~/.trvl/preferences.json).
+func DefaultPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve home directory: %w", err)
@@ -191,7 +188,7 @@ func Default() *Preferences {
 // Load reads preferences from ~/.trvl/preferences.json.
 // If the file does not exist, Default() is returned with no error.
 func Load() (*Preferences, error) {
-	path, err := defaultPath()
+	path, err := DefaultPath()
 	if err != nil {
 		return Default(), nil
 	}
@@ -223,21 +220,18 @@ func LoadFrom(path string) (*Preferences, error) {
 		p.MinHotelRating *= 2
 	}
 
-	// Default-populate NearbyAirports when not set. These defaults match
-	// Mikko's two-base lifestyle (AMS primary, HEL secondary) from the
-	// travel mental model document.
+	// Default-populate NearbyAirports when not set.
 	if len(p.NearbyAirports) == 0 {
 		p.NearbyAirports = defaultNearbyAirports()
 	}
 
-	// Migrate legacy AamuyoFloor → EarlyConnectionFloor, default when neither set.
+	// Migrate legacy AamuyoFloor → EarlyConnectionFloor.
 	if p.EarlyConnectionFloor == "" && p.AamuyoFloor != "" {
 		p.EarlyConnectionFloor = p.AamuyoFloor
 	}
 	if p.EarlyConnectionFloor == "" {
 		p.EarlyConnectionFloor = "10:00"
 	}
-	// Keep AamuyoFloor in sync for legacy readers.
 	if p.AamuyoFloor == "" {
 		p.AamuyoFloor = p.EarlyConnectionFloor
 	}
@@ -247,7 +241,7 @@ func LoadFrom(path string) (*Preferences, error) {
 
 // Save writes preferences to ~/.trvl/preferences.json atomically.
 func Save(p *Preferences) error {
-	path, err := defaultPath()
+	path, err := DefaultPath()
 	if err != nil {
 		return err
 	}
@@ -565,25 +559,37 @@ func filterByDistrict(hotels []models.HotelResult, districts []string) ([]models
 	return out, len(out) > 0
 }
 
-// affinityMaxScore is the ceiling on airport affinity scores. Prevents one
-// runaway route from drowning all others if the user does the same search
-// many times in a short period.
-const affinityMaxScore = 100
+// prioritiseByDistrict reorders hotels so those whose address contains one of
+// the preferred district strings appear first. Order within each group is
+// preserved.
+func prioritiseByDistrict(hotels []models.HotelResult, districts []string) []models.HotelResult {
+	var preferred, rest []models.HotelResult
+	for _, h := range hotels {
+		addrLow := strings.ToLower(h.Address)
+		matched := false
+		for _, d := range districts {
+			if strings.Contains(addrLow, strings.ToLower(d)) {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			preferred = append(preferred, h)
+		} else {
+			rest = append(rest, h)
+		}
+	}
+	return append(preferred, rest...)
+}
 
-// railFlyOrigins is the set of rail+fly airports reachable from AMS. When one
-// of these wins a search, RecordWinningOrigin also adds it to NearbyAirports
-// so future searches that start from AMS automatically include it.
+// affinityMaxScore is the ceiling on airport affinity scores.
+const affinityMaxScore = 100.0
+
+// railFlyOrigins is the set of rail+fly airports reachable from AMS.
 var railFlyOrigins = map[string]bool{"ZYR": true, "ANR": true, "BRU": true}
 
 // RecordWinningOrigin increments the affinity score for the given IATA code
-// in the user's preferences and persists the change. The call is idempotent
-// and safe to fire-and-forget (non-fatal callers can log the error).
-//
-// Side-effect: when iata is a rail+fly airport (ZYR/ANR/BRU) and AMS is a
-// home airport, it is also added to NearbyAirports["AMS"] so that future
-// home-fan expansions include it without needing affinity to reach threshold 3.
-//
-// Scores are capped at affinityMaxScore (100).
+// and persists the change.
 func RecordWinningOrigin(iata string) error {
 	iata = strings.ToUpper(strings.TrimSpace(iata))
 	if iata == "" {
@@ -595,9 +601,8 @@ func RecordWinningOrigin(iata string) error {
 		return fmt.Errorf("load preferences for affinity update: %w", err)
 	}
 
-	// Initialise map on first write — safe even on a Default() prefs with nil map.
 	if p.AirportAffinity == nil {
-		p.AirportAffinity = make(map[string]int)
+		p.AirportAffinity = make(map[string]float64)
 	}
 
 	score := p.AirportAffinity[iata] + 1
@@ -606,8 +611,6 @@ func RecordWinningOrigin(iata string) error {
 	}
 	p.AirportAffinity[iata] = score
 
-	// If this is a rail+fly origin and AMS is a home airport, also register
-	// it as a nearby airport so it participates in fan-out unconditionally.
 	if railFlyOrigins[iata] {
 		for _, home := range p.HomeAirports {
 			if strings.ToUpper(strings.TrimSpace(home)) == "AMS" {
@@ -632,18 +635,7 @@ func RecordWinningOrigin(iata string) error {
 	return Save(p)
 }
 
-// defaultNearbyAirports returns the built-in nearby-airport seed based on
-// Mikko's two-base lifestyle (Amsterdam + Helsinki). Keys are home-airport
-// IATA codes; values are airports close enough to justify searching.
-//
-// Rail+fly entries: BRU (Brussels Airport), ANR (Antwerp), ZYR (Brussels
-// Midi rail+fly station) are reachable from AMS via the Thalys / direct
-// rail link with KLM and Air France through-tickets, often saving EUR
-// 50-100 vs an AMS-only search (MIK-3079). Adding them here makes them
-// participate in --home-fan from day one rather than waiting for the
-// affinity side-effect in RecordWinningOrigin to register them.
-//
-// Source: travel_search_mental_model.md — MULTI-AIRPORT ORIGIN SPREAD section.
+// defaultNearbyAirports returns the built-in nearby-airport seed.
 func defaultNearbyAirports() map[string][]string {
 	return map[string][]string{
 		"AMS": {"EIN", "BRU", "ANR", "ZYR"},
@@ -651,9 +643,8 @@ func defaultNearbyAirports() map[string][]string {
 	}
 }
 
-// NearbyAirportsFor returns the nearby airports for a given home airport.
-// It also includes the home airport itself. The result is deduplicated.
-// Returns a slice containing at minimum the home airport itself.
+// NearbyAirportsFor returns the nearby airports for a given home airport,
+// including the home airport itself. The result is deduplicated.
 func (p *Preferences) NearbyAirportsFor(homeAirport string) []string {
 	seen := make(map[string]bool)
 	var out []string
@@ -673,7 +664,6 @@ func (p *Preferences) NearbyAirportsFor(homeAirport string) []string {
 
 // ExpandHomeOrigins returns the full set of origin airports to search when
 // --home-fan is enabled: all home airports plus their nearby airports.
-// Duplicates are deduplicated.
 func (p *Preferences) ExpandHomeOrigins() []string {
 	seen := make(map[string]bool)
 	var out []string
@@ -691,27 +681,4 @@ func (p *Preferences) ExpandHomeOrigins() []string {
 		}
 	}
 	return out
-}
-
-// prioritiseByDistrict reorders hotels so those whose address contains one of
-// the preferred district strings appear first. Order within each group is
-// preserved.
-func prioritiseByDistrict(hotels []models.HotelResult, districts []string) []models.HotelResult {
-	var preferred, rest []models.HotelResult
-	for _, h := range hotels {
-		addrLow := strings.ToLower(h.Address)
-		matched := false
-		for _, d := range districts {
-			if strings.Contains(addrLow, strings.ToLower(d)) {
-				matched = true
-				break
-			}
-		}
-		if matched {
-			preferred = append(preferred, h)
-		} else {
-			rest = append(rest, h)
-		}
-	}
-	return append(preferred, rest...)
 }

@@ -86,7 +86,7 @@ func runWatchCheckCycleWithRooms(ctx context.Context, checker watch.PriceChecker
 	checkCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	notifier.NotifyAll(watch.CheckAllWithRooms(checkCtx, store, checker, roomChecker))
+	notifier.NotifyAll(watch.CheckAllWithRoomsAndWebhookContext(checkCtx, ctx, store, checker, roomChecker))
 	return len(watches), nil
 }
 

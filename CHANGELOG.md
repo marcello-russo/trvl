@@ -8,41 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Empirical-CDF buy-now-vs-wait advisor** — `internal/forecast` + `trvl forecast <route>` CLI: scan locally captured price history for a route+kind+season, return commit-now confidence (0..100), horizon-scaled drop probability, expected savings if you wait, and a sparkline of the historical distribution against the current quote. Routes with <30 observations flagged as InsufficientData with a neutral score (MIK-3084)
-- **Composable opportunity foundations** — pure-function ranker packages built so the upcoming watcher loop (MIK-3065) integrates them without re-implementing math:
-  - `internal/hacks/nested_rt` — overlapping round-trip combinator: enumerates {naive 2x RT, 4 one-ways, A-rooted nested, B-rooted nested}, ranks by total cost, computes savings vs naive baseline (MIK-3076, partial)
-  - `internal/hacks/hidden_city_matrix` — origin x hub-beyond grid expander with composite layover-risk score (length + carry-on + ticket-separation, capped at 100), per-carrier booking-URL templates (KL/AF/DL -> airfrance.com, AY -> finnair.com, LH/OS/LX -> lufthansa.com, fallback -> Google Flights deep-link), risk-gate + TopK clip (MIK-3078, partial)
-  - `internal/awards` — cross-program sweet-spot detector: scores AwardSeats against PointBalances + transfer ratios (Amex MR / Chase UR / Bilt -> AY/VS/AC/BA/FB at 1:1 by default), affordable rows sort first, short rows kept for guidance, cents-per-point yardstick (MIK-3081, partial)
-  - `internal/los` — length-of-stay rate-flip scanner: detects extend_for_savings (weekly-rate cliffs), shorten_safe, extend_better_rate (suppressed below 5% gap to avoid noise) (MIK-3087, partial)
-  - `internal/railpass` — Eurail/Interrail break-even calculator: PointToPointTotal vs PassTotalEffective (activation + reservation fees), buy/skip/marginal verdict with central 10% marginal band, BreakEvenSegments count, EvaluateAll ranks multi-pass options (MIK-3086, partial)
-  - `internal/multidest` — two-stage screen + drill-down ranker for multi-city itineraries: flight-only Screen ranks orderings, DrillDown adds hotel costs and re-sorts by grand total (MIK-3080, partial)
-  - `internal/expenses` — per-traveller reconciliation: weighted Splits with default-1.0 fallback, minimum-flow settler producing at most N-1 transfers for N travellers, 0.005 tolerance kills cents-residue ghost transfers, category roll-up sorted descending, Render formatter (MIK-3088, partial)
-  - `internal/preflightttl` — AIMD adaptive cache TTL controller: floor 10min / ceiling 60min / 1min step / divide-by-2 on failure, OutcomeNoOp zero-value for cache-hit paths, Extended() helper for slog field (MIK-3089, partial)
-  - `internal/opportunity` — score composer: 0.4 ProfileMatch + 0.2 RequestMatch + 0.4 DealQuality (AC weighting, sums to 1.0, clamped to [0,100]), four reason bands (unicorn/excellent/solid/below), FilterAndRank with min_score gate (default 85), FavouritesFromPreferences resolves the "BucketList union PreviousTrips intersect AirportAffinity>=3" rule (MIK-3065, partial)
-  - `internal/cabinarb` — cabin-class arbitrage detector: 15% threshold across full ladder (economy -> premium economy -> business -> first), strictly-cheaper cabins surface as no-brainer upgrades (UpsellPercent=0), DetectWithThreshold for caller override (MIK-3090, partial)
-- **Match scoring foundations** for the upcoming opportunity-watcher (MIK-3065):
-  - `internal/match` — `RequestMatch` 0..100 fidelity score (date drift, airport substitution, nights drift, currency, guest count); wired into `DiscoverResult` (MIK-3063)
-  - `internal/calendar` — `FreeWindows` detector built on top of `calendarbusy`, with travel-title heuristic that excludes existing trip blocks (MIK-3066)
-  - `internal/dealquality` — per-route × per-season percentile-based `DealQuality` 0..100 score with sparse-history floor + 90-day rolling prune (MIK-3064); plus `MistakeFare` detector with 24h alert decay window (MIK-3085)
-  - `internal/cards` — multi-card reward ranker; `Preferences.PaymentCards` schema (MIK-3083)
-  - `internal/loyalty` — points-expiry + status-renewal warnings tracker (60-day pre-deadline); `Preferences.LoyaltyBalances` schema (MIK-3082)
-  - `internal/hacks.DetectHomeStopover` — flags 12-48h layovers at home airports / publisher-free-stopover hubs (MIK-3077)
-- **AMS rail+fly origins seeded by default** — BRU/ANR/ZYR appear in `defaultNearbyAirports()["AMS"]` so `--home-fan` searches include them on day one (MIK-3079, partial)
+- `search_hidden_city` MCP tool: hidden-city matrix search ranks priced Origin×hub-beyond offers, computes layover risk score, and returns pre-filled booking URLs per carrier (MIK-3078)
+- `trvl hidden-city` CLI command: evaluate a hidden-city routing with customisable risk threshold and booking URL (MIK-3078)
+- **`OpportunityWatch`** — rolling-window watcher with configurable interval and favourite-destinations resolver; `internal/watch` package wires `OpportunityWatch` type with `Start`/`Stop` lifecycle and delivers scored opportunities to a channel (MIK-3065)
 
-### Fixed
-- **Auth-cache race on city-switch** — `runPreflight` returns an immutable snapshot bound to the preflighted URL (MIK-3070)
-- **`tripState.Searches` unbounded growth** — capped at 1000 with FIFO eviction (MIK-3073)
-- **MCP flight search**: plumb `Currency` through `FlightSearchOptions` and include `returnDate` + `currency` in booking deep links, so prices and booking URLs stay consistent for MCP clients (#34, thanks @Alorse — first external contributor!)
-- **Race conditions in `mcp` handlers under `-race`**: singleflight-coalesced callers each receive their own `*HotelSearchResult` / `*FlightSearchResult` header with independent slice headers, so post-filter mutations no longer race with sibling JSON marshaling (#39 hotels, #40 flights)
+### Breaking Changes
+- **`ValueScore` removed** — `DiscoverResult.value_score` (float64, 0-1) is replaced by `ProfileMatch` (int, 0-100) and `MatchBreakdown` (map[string]float64). Consumers of the `value_score` JSON field must migrate to `profile_match`. The score is computed on-demand; no data migration is required. To restore the old behaviour, revert the commit introducing this change.
+
+### Added
+- **`ProfileMatch` score** — `DiscoverResult.profile_match` (int 0-100) is a weighted sum across 12 factors: budget_fit, loyalty_earn, time_window_fit, directness, district_match, airport_affinity, early_connection_compliance, status_retention, lounge_at_transit, bucket_list_boost, warsaw_filter (hard exclusion), family_mode_compatibility. Factor weights are user-tunable via `match_weights` in `preferences.json`.
+- **Per-factor breakdown** — `DiscoverResult.match_breakdown` (map[string]float64) exposes per-factor scores in [0,1] so users can see exactly why a trip scored 73 instead of 91.
+- **`--explain` flag** — `trvl discover --explain` prints an ASCII progress bar table of per-factor scores beneath the main result table.
+- **`match_weights` in preferences** — user can override default factor weights; missing keys keep the built-in default.
+- **`airport_affinity` in preferences** — maps destination IATA codes to affinity scores in [0,1]; used by the airport_affinity factor.
+- **`excluded_destinations` in preferences** — hard-excludes cities or airport codes from all results (warsaw_filter returns 0 for these; ProfileMatch returns 0 for the whole result).
+- **`FixHintCode` enum** — typed root-cause classifier (`AKAMAI_BLOCK`, `DNS_FAIL`, `TLS_TIMEOUT`, `COOKIE_EXPIRED`, `RATE_LIMITED`, `RESPONSE_SHAPE_CHANGED`, `PREFLIGHT_FAILED`, `UNCLASSIFIED`) surfaced in MCP search responses (`fix_hint_code` field on `provider_statuses`) and in the `provider_health` aggregate (`last_hint_code`); persisted per-entry in `~/.trvl/health.jsonl` (`hint_code` field)
 
 ### Changed
-- **Provider error classification** — typed `FixHintCode` enum surfaced via `models.ProviderStatus.FixHintCode` and aggregated into `ProviderHealth.LastHintCode` (MIK-3074)
-- **Hotel-search fan-out** — bounded worker pool with `defaultProviderConcurrency = 8` (overridable via `TRVL_PROVIDER_CONCURRENCY`); `provider_concurrent_inflight` slog gauge (MIK-3072)
-- **HTTP 429 + Retry-After** parsed and retried up to 2× per provider, with adaptive per-provider rate-limit halving after 3 consecutive 429s and 1h cooldown auto-restore (MIK-3071)
-- **Provider config schema versioning** — new `schema_version` field, forward-migration chain, future versions rejected with explicit upgrade message (MIK-3075)
+- **Hotel singleflight cache keys** — hotel deduplication keys now include the full `HotelSearchOptions` filter set, with order-insensitive amenity matching, so distinct hotel searches no longer share in-flight results accidentally
+- **`providerFixHint`** — now delegates to the new `classifyProviderError` classifier; hint text updated to be more actionable and accurate (back-compatible: the `fix_hint` string field is still populated)
 
-### Notes
-- Windows CI runners hit external-provider rate limits (Kiwi, Nominatim) on slower hardware; tracked in #41 as a separate hardening item. Ubuntu CI is the source of truth for test correctness until that lands.
+### Fixed
+- **MCP handler race safety** — singleflight winners for flights, ground, and hotels are now cloned before caller-specific post-filtering mutates counts, slices, or nested pointers
+- **Singleflight timeout isolation** — shared flight, ground, and hotel upstream work now outlives the first caller's timeout, so one canceled request no longer aborts identical concurrent searches for other callers
+- **Watch scheduler shutdown** — calling `Stop()` before `Start()` no longer deadlocks; lifecycle state is synchronized and remains idempotent
+- **Race regression coverage** — new and expanded tests lock in caller-private result cloning and scheduler lifecycle behavior across the touched packages
 
 ## [1.0.3] - 2026-04-20
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 )
 
@@ -45,7 +46,6 @@ func registerTools(s *Server) {
 		createTripTool(),
 		addTripLegTool(),
 		markTripBookedTool(),
-		exportICSTool(),
 		getWeatherTool(),
 		getBaggageRulesTool(),
 		findTripWindowTool(),
@@ -68,8 +68,9 @@ func registerTools(s *Server) {
 		watchPriceTool(),
 		listWatchesTool(),
 		checkWatchesTool(),
-		planFlightBundleTool(),
-		findInteractiveTool(),
+		watchOpportunitiesTool(),
+		listOpportunityWatchesTool(),
+		searchHiddenCityTool(),
 	}
 	s.handlers["search_flights"] = s.wrapHandler(handleSearchFlights)
 	s.handlers["search_dates"] = s.wrapHandler(handleSearchDates)
@@ -103,7 +104,6 @@ func registerTools(s *Server) {
 	s.handlers["create_trip"] = s.wrapHandler(handleCreateTrip)
 	s.handlers["add_trip_leg"] = s.wrapHandler(handleAddTripLeg)
 	s.handlers["mark_trip_booked"] = s.wrapHandler(handleMarkTripBooked)
-	s.handlers["export_ics"] = s.wrapHandler(handleExportICS)
 	s.handlers["get_weather"] = s.wrapHandler(handleGetWeather)
 	s.handlers["get_baggage_rules"] = s.wrapHandler(handleGetBaggageRules)
 	s.handlers["find_trip_window"] = s.wrapHandler(handleFindTripWindow)
@@ -126,8 +126,9 @@ func registerTools(s *Server) {
 	s.handlers["watch_price"] = s.wrapHandler(handleWatchPrice)
 	s.handlers["list_watches"] = s.wrapHandler(handleListWatches)
 	s.handlers["check_watches"] = s.wrapHandler(handleCheckWatches)
-	s.handlers["plan_flight_bundle"] = s.wrapHandler(handlePlanFlightBundle)
-	s.handlers["find_interactive"] = s.wrapHandler(handleFindInteractive)
+	s.handlers["watch_opportunities"] = s.wrapHandler(handleWatchOpportunities)
+	s.handlers["list_opportunity_watches"] = s.wrapHandler(handleListOpportunityWatches)
+	s.handlers["search_hidden_city"] = s.wrapHandler(handleSearchHiddenCity)
 }
 
 // wrapHandler returns a ToolHandler that delegates to the inner handler and
@@ -183,7 +184,14 @@ func (s *Server) wrapHandler(inner ToolHandler) ToolHandler {
 		// Notify subscribers when trip-mutating tools complete.
 		s.notifyTripUpdate(args)
 
-		return content, structured, nil
+		clonedContent := cloneContentBlocks(content)
+
+		clonedStructured, cloneErr := cloneStructuredContent(structured)
+		if cloneErr != nil {
+			return nil, nil, fmt.Errorf("clone structured content: %w", cloneErr)
+		}
+
+		return clonedContent, clonedStructured, nil
 	}
 }
 
@@ -514,4 +522,67 @@ func buildAnnotatedContentBlocks(summary string, data any) ([]ContentBlock, erro
 			},
 		},
 	}, nil
+}
+
+func cloneContentBlocks(blocks []ContentBlock) []ContentBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+
+	cloned := make([]ContentBlock, len(blocks))
+	copy(cloned, blocks)
+	for i := range cloned {
+		if cloned[i].Annotations != nil {
+			annotation := *cloned[i].Annotations
+			annotation.Audience = append([]string(nil), annotation.Audience...)
+			cloned[i].Annotations = &annotation
+		}
+	}
+
+	return cloned
+}
+
+func cloneStructuredContent(data any) (any, error) {
+	if data == nil {
+		return nil, nil
+	}
+
+	value := reflect.ValueOf(data)
+	if !value.IsValid() {
+		return nil, nil
+	}
+
+	switch value.Kind() {
+	case reflect.Pointer:
+		if value.IsNil() {
+			return data, nil
+		}
+		return cloneStructuredIntoNewValue(data, value.Type().Elem(), true)
+	case reflect.Struct:
+		return cloneStructuredIntoNewValue(data, value.Type(), false)
+	case reflect.Slice, reflect.Map:
+		if value.IsNil() {
+			return data, nil
+		}
+		return cloneStructuredIntoNewValue(data, value.Type(), false)
+	default:
+		return data, nil
+	}
+}
+
+func cloneStructuredIntoNewValue(data any, targetType reflect.Type, returnPointer bool) (any, error) {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("marshal structured content: %w", err)
+	}
+
+	target := reflect.New(targetType)
+	if err := json.Unmarshal(payload, target.Interface()); err != nil {
+		return nil, fmt.Errorf("unmarshal structured content: %w", err)
+	}
+
+	if returnPointer {
+		return target.Interface(), nil
+	}
+	return target.Elem().Interface(), nil
 }

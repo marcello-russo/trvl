@@ -1,259 +1,197 @@
-// Package match computes deterministic scores describing how well a
-// returned trip option matches what the user actually asked for.
-//
-// This file holds the RequestMatch axis (MIK-3063): "how close is the
-// offered itinerary to the user's literal ask?" — orthogonal to the
-// future ProfileMatch axis (MIK-3062) which scores against the user's
-// long-lived preferences. RequestMatch is pure, has no I/O, and is
-// safe to call from any goroutine.
+// Package match computes how well an offered travel result matches what was requested.
+// All scoring is pure (no I/O), deterministic, and safe for concurrent use.
 package match
 
 import (
 	"fmt"
-	"strings"
 	"time"
 )
 
-// Request describes what the user actually asked for. Zero values for
-// optional fields mean "the user did not constrain this axis"; such axes
-// contribute no penalty.
+const dateLayout = "2006-01-02"
+
+// Request describes what was asked for (the user's literal request).
 type Request struct {
-	// DepartDate is the user's literal anchor depart date. When the user
-	// supplied a range, this is the window center. Zero = no date anchor.
-	DepartDate time.Time
-	// DateWindowDays is the symmetric flex (in days) the user explicitly
-	// allowed around DepartDate. The first DateWindowDays of drift incur
-	// no penalty; drift beyond it is penalised linearly. Zero = no flex
-	// allowed (every day of drift counts).
-	DateWindowDays int
-	// PrimaryOrigin is the user's preferred origin airport (IATA). Empty
-	// means "any origin is fine".
-	PrimaryOrigin string
-	// AcceptableOrigins is the full set of origins the user has marked as
-	// substitutable for PrimaryOrigin (typically PrimaryOrigin's nearby
-	// airports). PrimaryOrigin is implicitly part of this set.
-	AcceptableOrigins []string
-	// Nights is the user-requested trip duration. Zero = unspecified.
-	Nights int
-	// Currency is the user's requested currency. Empty = unspecified.
-	Currency string
-	// Guests is the requested number of guests. Zero = unspecified.
-	Guests int
+	OriginIATA       string   // e.g. "HEL"
+	DestIATA         string   // empty = any
+	DepartDateCenter string   // YYYY-MM-DD, desired depart date
+	FlexDays         int      // allowed drift either side (0 = exact)
+	DateWindowDays   int      // total search window in days (≥ 0); informational, used by discover
+	Nights           int      // desired trip length; 0 = any
+	MaxNightsDrift   int      // allowed drift from Nights; 0 means exact
+	PreferDirect     bool
+	AcceptedAirports []string // non-empty = alternatives accepted with reduced penalty
+	Currency         string
+	GuestCount       int
 }
 
-// Offered describes the itinerary that the system actually found and is
-// about to return to the user.
+// Offered describes what is actually being offered.
 type Offered struct {
-	DepartDate time.Time
-	Origin     string
-	Nights     int
+	OriginIATA string
+	DestIATA   string
+	DepartDate string // YYYY-MM-DD
+	ReturnDate string // YYYY-MM-DD; "" means one-way
+	Stops      int
 	Currency   string
-	Guests     int
+	GuestCount int
 }
 
-// Components records the contribution of each axis to the final score.
-// Exposed so callers can render a detailed "why" tooltip without having
-// to re-derive the breakdown.
-type Components struct {
-	DateDriftDays       int
-	AirportSubstitution bool
-	NightsDrift         int
-	CurrencyMismatch    bool
-	GuestDelta          int
-}
-
-// Score is the result of a single RequestMatch evaluation.
+// Score holds the result of a RequestMatch computation.
 type Score struct {
-	// Total is the final score on 0..100. 100 = exact match on every
-	// non-zero axis; 0 = floor (penalties capped so we never go negative).
-	Total int
-	// Reason names the axis that subtracted the most points. Empty when
-	// every axis was either unconstrained or matched exactly.
-	Reason     string
-	Components Components
+	Total  int    // 0-100
+	Reason string // dominant penalty axis
 }
 
-// Per-axis penalty weights. These are conservative: the AC requires that
-// 50 ≈ "significant flex applied", so the dominant axes (airport
-// substitution, currency mismatch) cap out around -25/-30 each, and a
-// week of date drift adds another -28. Tuned by eyeballing the worst
-// realistic case (different airport + 7-day drift) ≈ score 47.
-const (
-	// dateDriftPenaltyPerDay is the hit per day of drift beyond the
-	// user's explicit DateWindowDays.
-	dateDriftPenaltyPerDay = 4
-	// airportSubstitutionPenalty applies when Offered.Origin is in
-	// AcceptableOrigins but is not PrimaryOrigin.
-	airportSubstitutionPenalty = 25
-	// airportRejectedPenalty applies when Offered.Origin is not in the
-	// AcceptableOrigins set at all (a hard miss).
-	airportRejectedPenalty = 50
-	// nightsDriftPenaltyPerNight is the hit per night of duration drift
-	// from the user's requested Nights.
-	nightsDriftPenaltyPerNight = 5
-	// currencyMismatchPenalty applies when the offered currency differs
-	// from the requested currency.
-	currencyMismatchPenalty = 10
-	// guestDeltaPenaltyPer is the hit per guest of difference between
-	// the requested and offered guest counts.
-	guestDeltaPenaltyPer = 10
-	// scoreFloor caps how low a penalised score may go.
-	scoreFloor = 0
-	// scoreMax is the perfect-match anchor.
-	scoreMax = 100
-)
-
-// Compute returns the RequestMatch score for one (Request, Offered)
-// pair. Pure: no I/O, deterministic, safe across goroutines.
+// Compute returns a RequestMatch score for an offered result against a request.
+// 100 = exact match to literal ask.
+// 0   = completely incompatible.
 func Compute(req Request, off Offered) Score {
-	var sc Score
-	sc.Total = scoreMax
-
-	type axis struct {
-		name    string
-		penalty int
-	}
-	var axes []axis
-
-	// Date drift. Skipped when the user did not anchor a depart date.
-	if !req.DepartDate.IsZero() && !off.DepartDate.IsZero() {
-		drift := dayDelta(req.DepartDate, off.DepartDate)
-		excess := drift - req.DateWindowDays
-		if excess < 0 {
-			excess = 0
-		}
-		sc.Components.DateDriftDays = drift
-		if excess > 0 {
-			p := excess * dateDriftPenaltyPerDay
-			sc.Total -= p
-			axes = append(axes, axis{"date_drift", p})
-		}
+	penalties := map[string]int{
+		"date_drift":           dateDriftPenalty(req, off),
+		"airport_substitution": airportSubPenalty(req, off),
+		"nights_drift":         nightsDriftPenalty(req, off),
+		"currency_mismatch":    currencyMismatchPenalty(req, off),
+		"direct_preference":    directPrefPenalty(req, off),
 	}
 
-	// Airport substitution / rejection. Skipped when the user accepted
-	// any origin (PrimaryOrigin == "").
-	if req.PrimaryOrigin != "" && off.Origin != "" {
-		if !equalIATA(req.PrimaryOrigin, off.Origin) {
-			if originAcceptable(off.Origin, req.AcceptableOrigins, req.PrimaryOrigin) {
-				sc.Components.AirportSubstitution = true
-				sc.Total -= airportSubstitutionPenalty
-				axes = append(axes, axis{"airport_substitution", airportSubstitutionPenalty})
-			} else {
-				sc.Components.AirportSubstitution = true
-				sc.Total -= airportRejectedPenalty
-				axes = append(axes, axis{"airport_rejected", airportRejectedPenalty})
-			}
-		}
+	total := 0
+	for _, p := range penalties {
+		total += p
+	}
+	if total > 100 {
+		total = 100
 	}
 
-	// Nights drift. Skipped when the user did not specify Nights.
-	if req.Nights > 0 && off.Nights > 0 && req.Nights != off.Nights {
-		delta := absInt(req.Nights - off.Nights)
-		sc.Components.NightsDrift = delta
-		p := delta * nightsDriftPenaltyPerNight
-		sc.Total -= p
-		axes = append(axes, axis{"nights_drift", p})
+	score := 100 - total
+	if score < 0 {
+		score = 0
 	}
 
-	// Currency mismatch.
-	if req.Currency != "" && off.Currency != "" &&
-		!strings.EqualFold(strings.TrimSpace(req.Currency), strings.TrimSpace(off.Currency)) {
-		sc.Components.CurrencyMismatch = true
-		sc.Total -= currencyMismatchPenalty
-		axes = append(axes, axis{"currency_mismatch", currencyMismatchPenalty})
-	}
-
-	// Guest count mismatch. Skipped when either side did not specify.
-	if req.Guests > 0 && off.Guests > 0 && req.Guests != off.Guests {
-		delta := absInt(req.Guests - off.Guests)
-		sc.Components.GuestDelta = delta
-		p := delta * guestDeltaPenaltyPer
-		sc.Total -= p
-		axes = append(axes, axis{"guest_count_mismatch", p})
-	}
-
-	if sc.Total < scoreFloor {
-		sc.Total = scoreFloor
-	}
-
-	// Pick the dominant penalty axis (largest negative contributor) for
-	// the user-facing reason string. Stable — first axis wins ties.
-	var dominant axis
-	for _, a := range axes {
-		if a.penalty > dominant.penalty {
-			dominant = a
-		}
-	}
-	if dominant.penalty > 0 {
-		sc.Reason = describeReason(dominant, sc.Components)
-	}
-	return sc
+	reason := dominantAxis(penalties)
+	return Score{Total: score, Reason: reason}
 }
 
-// dayDelta returns the absolute difference between two dates in calendar
-// days, ignoring the time-of-day component.
-func dayDelta(a, b time.Time) int {
-	ay, am, ad := a.Date()
-	by, bm, bd := b.Date()
-	da := time.Date(ay, am, ad, 0, 0, 0, 0, time.UTC)
-	db := time.Date(by, bm, bd, 0, 0, 0, 0, time.UTC)
-	delta := int(db.Sub(da).Hours() / 24)
-	if delta < 0 {
-		delta = -delta
+// dateDriftPenalty applies 5 pts/day outside [center ± flexDays]. Max 40.
+func dateDriftPenalty(req Request, off Offered) int {
+	if req.DepartDateCenter == "" || off.DepartDate == "" {
+		return 0
 	}
-	return delta
+	center, err1 := time.Parse(dateLayout, req.DepartDateCenter)
+	offered, err2 := time.Parse(dateLayout, off.DepartDate)
+	if err1 != nil || err2 != nil {
+		return 0
+	}
+
+	diff := int(offered.Sub(center).Hours() / 24)
+	if diff < 0 {
+		diff = -diff
+	}
+	drift := diff - req.FlexDays
+	if drift <= 0 {
+		return 0
+	}
+	penalty := drift * 5
+	if penalty > 40 {
+		penalty = 40
+	}
+	return penalty
 }
 
-func absInt(x int) int {
-	if x < 0 {
-		return -x
+// airportSubPenalty: 0 if dest matches or req.DestIATA is empty;
+// 20 if not in AcceptedAirports; 10 if an accepted substitute.
+func airportSubPenalty(req Request, off Offered) int {
+	if req.DestIATA == "" || req.DestIATA == off.DestIATA {
+		return 0
 	}
-	return x
-}
-
-// equalIATA compares two IATA-style codes case-insensitively after
-// trimming whitespace. Returns false for empty inputs.
-func equalIATA(a, b string) bool {
-	a = strings.TrimSpace(a)
-	b = strings.TrimSpace(b)
-	if a == "" || b == "" {
-		return false
-	}
-	return strings.EqualFold(a, b)
-}
-
-// originAcceptable returns true when off is in the substitutable set or
-// equals the user's primary. The primary is always implicitly acceptable.
-func originAcceptable(off string, acceptable []string, primary string) bool {
-	if equalIATA(off, primary) {
-		return true
-	}
-	for _, a := range acceptable {
-		if equalIATA(off, a) {
-			return true
+	for _, a := range req.AcceptedAirports {
+		if a == off.DestIATA {
+			return 10
 		}
 	}
-	return false
+	return 20
 }
 
-func describeReason(dominant struct {
-	name    string
-	penalty int
-}, c Components) string {
-	switch dominant.name {
-	case "date_drift":
-		return fmt.Sprintf("date drifted %d day(s) from requested center", c.DateDriftDays)
-	case "airport_substitution":
-		return "alternate origin airport (substitutable)"
-	case "airport_rejected":
-		return "origin airport not in your accepted set"
-	case "nights_drift":
-		return fmt.Sprintf("%d night(s) different from requested duration", c.NightsDrift)
-	case "currency_mismatch":
-		return "result quoted in a different currency than requested"
-	case "guest_count_mismatch":
-		return fmt.Sprintf("%d guest(s) different from your booking party", c.GuestDelta)
-	default:
-		return ""
+// nightsDriftPenalty: |offered_nights - req.Nights| × 5; only when Nights > 0
+// and drift exceeds MaxNightsDrift. Max 20.
+func nightsDriftPenalty(req Request, off Offered) int {
+	if req.Nights <= 0 {
+		return 0
 	}
+	offeredNights := offeredNightCount(off)
+	if offeredNights < 0 {
+		return 0
+	}
+	drift := offeredNights - req.Nights
+	if drift < 0 {
+		drift = -drift
+	}
+	if drift < req.MaxNightsDrift {
+		return 0
+	}
+	penalty := drift * 5
+	if penalty > 20 {
+		penalty = 20
+	}
+	return penalty
+}
+
+// offeredNightCount returns the number of nights implied by DepartDate/ReturnDate.
+// Returns -1 if it cannot be determined.
+func offeredNightCount(off Offered) int {
+	if off.DepartDate == "" || off.ReturnDate == "" {
+		return -1
+	}
+	dep, err1 := time.Parse(dateLayout, off.DepartDate)
+	ret, err2 := time.Parse(dateLayout, off.ReturnDate)
+	if err1 != nil || err2 != nil {
+		return -1
+	}
+	nights := int(ret.Sub(dep).Hours() / 24)
+	if nights < 0 {
+		return 0
+	}
+	return nights
+}
+
+// currencyMismatchPenalty: 10 pts if currencies differ and both non-empty.
+func currencyMismatchPenalty(req Request, off Offered) int {
+	if req.Currency == "" || off.Currency == "" {
+		return 0
+	}
+	if req.Currency != off.Currency {
+		return 10
+	}
+	return 0
+}
+
+// directPrefPenalty: 10 pts if PreferDirect=true and offered has stops.
+func directPrefPenalty(req Request, off Offered) int {
+	if req.PreferDirect && off.Stops > 0 {
+		return 10
+	}
+	return 0
+}
+
+// dominantAxis returns the name of the penalty axis with the highest value.
+// Returns "exact_match" if all are zero.
+func dominantAxis(penalties map[string]int) string {
+	best := ""
+	max := 0
+	// Deterministic order for ties.
+	axes := []string{"date_drift", "airport_substitution", "nights_drift", "currency_mismatch", "direct_preference"}
+	for _, axis := range axes {
+		v := penalties[axis]
+		if v > max {
+			max = v
+			best = axis
+		}
+	}
+	if best == "" {
+		return "exact_match"
+	}
+	return best
+}
+
+// FormatScore returns a human-readable description of a Score.
+func FormatScore(s Score) string {
+	return fmt.Sprintf("score=%d reason=%s", s.Total, s.Reason)
 }

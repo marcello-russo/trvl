@@ -278,3 +278,4 @@ func buildAccomHacksSummary(city, checkin, checkout string, detected []hacks.Hac
 	}
 	return sb.String()
 }
+

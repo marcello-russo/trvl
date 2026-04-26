@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/MikkoParkkola/trvl/internal/models"
+	"github.com/MikkoParkkola/trvl/internal/preferences"
+	"github.com/MikkoParkkola/trvl/internal/scoring"
 	"github.com/MikkoParkkola/trvl/internal/trip"
 	"github.com/spf13/cobra"
 )
@@ -19,6 +21,7 @@ func tripCostCmd() *cobra.Command {
 		guests     int
 		currency   string
 		format     string
+		explain    bool
 	)
 
 	cmd := &cobra.Command{
@@ -60,7 +63,7 @@ Examples:
 				return models.FormatJSON(os.Stdout, result)
 			}
 
-			return printTripCostTable(result, origin, dest, guests)
+			return printTripCostTable(result, origin, dest, guests, explain)
 		},
 	}
 
@@ -69,6 +72,7 @@ Examples:
 	cmd.Flags().IntVar(&guests, "guests", 1, "Number of guests (must be >= 1)")
 	cmd.Flags().StringVar(&currency, "currency", "", "Convert prices to this currency (e.g. EUR). Empty = API default")
 	cmd.Flags().StringVar(&format, "format", "table", "Output format: table, json")
+	cmd.Flags().BoolVar(&explain, "explain", false, "Show per-factor profile match breakdown for the trip")
 
 	_ = cmd.MarkFlagRequired("depart")
 	_ = cmd.MarkFlagRequired("return")
@@ -76,7 +80,7 @@ Examples:
 	return cmd
 }
 
-func printTripCostTable(result *trip.TripCostResult, origin, dest string, guests int) error {
+func printTripCostTable(result *trip.TripCostResult, origin, dest string, guests int, explain bool) error {
 	if !result.Success {
 		fmt.Fprintf(os.Stderr, "Trip cost estimation failed: %s\n", result.Error)
 		return nil
@@ -115,6 +119,22 @@ func printTripCostTable(result *trip.TripCostResult, origin, dest string, guests
 	rows = append(rows, []string{"Per day", fmt.Sprintf("%s %.0f", cur, result.PerDay), ""})
 
 	models.FormatTable(os.Stdout, headers, rows)
+
+	// --explain: show profile match breakdown for this trip.
+	if explain {
+		fmt.Println()
+		prefs, _ := preferences.Load()
+		matchScore, breakdown := scoring.ComputeProfileMatch(prefs, scoring.DiscoverInput{
+			AirportCode: dest,
+			FlightPrice: result.Flights.Outbound + result.Flights.Return,
+			HotelPrice:  result.Hotels.Total,
+			Total:       result.Total,
+			HotelName:   result.Hotels.Name,
+			Stops:       result.Flights.OutboundStops,
+		})
+		printMatchBreakdown(fmt.Sprintf("%s → %s", origin, dest), matchScore, breakdown)
+	}
+
 	return nil
 }
 

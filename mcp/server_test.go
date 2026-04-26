@@ -187,9 +187,9 @@ func TestToolsList(t *testing.T) {
 		"watch_price":               false,
 		"list_watches":              false,
 		"check_watches":             false,
-		"export_ics":                false,
-		"plan_flight_bundle":        false,
-		"find_interactive":          false,
+		"watch_opportunities":       false,
+		"list_opportunity_watches":  false,
+		"search_hidden_city":        false,
 	}
 	for _, tool := range result.Tools {
 		if _, ok := expected[tool.Name]; !ok {

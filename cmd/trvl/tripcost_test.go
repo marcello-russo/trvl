@@ -62,7 +62,7 @@ func TestPrintTripCostTable_PartialFailureWarning(t *testing.T) {
 	}
 
 	stdout, stderr, err := captureTripCostOutput(t, func() error {
-		return printTripCostTable(result, "HEL", "BCN", 1)
+		return printTripCostTable(result, "HEL", "BCN", 1, false)
 	})
 	if err != nil {
 		t.Fatalf("printTripCostTable returned error: %v", err)
@@ -88,7 +88,7 @@ func TestPrintTripCostTable_UnavailableComponents(t *testing.T) {
 	}
 
 	stdout, stderr, err := captureTripCostOutput(t, func() error {
-		return printTripCostTable(result, "HEL", "BCN", 1)
+		return printTripCostTable(result, "HEL", "BCN", 1, false)
 	})
 	if err != nil {
 		t.Fatalf("printTripCostTable returned error: %v", err)

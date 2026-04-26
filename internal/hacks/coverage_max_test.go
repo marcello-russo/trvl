@@ -3,6 +3,7 @@ package hacks
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/preferences"
@@ -1439,7 +1440,9 @@ func TestDetectStopover_cancelledContext(t *testing.T) {
 
 func TestDetectNightTransport_unknownRoute(t *testing.T) {
 	// Unknown city pair with no ground routes — should return nil gracefully.
-	h := detectNightTransport(context.Background(), DetectorInput{
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	h := detectNightTransport(ctx, DetectorInput{
 		Date:        "2026-06-15",
 		Origin:      "XXX",
 		Destination: "YYY",

@@ -20,41 +20,40 @@ import (
 	"github.com/MikkoParkkola/trvl/internal/match"
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/preferences"
+	"github.com/MikkoParkkola/trvl/internal/scoring"
 )
 
 // DiscoverOptions configures an inverted-search discovery.
 type DiscoverOptions struct {
-	Origin    string  // IATA (default: first home_airport from prefs)
-	From      string  // earliest depart date YYYY-MM-DD (required)
-	Until     string  // latest return date YYYY-MM-DD (required)
-	Budget    float64 // max total EUR (required)
-	MinNights int     // default 2
-	MaxNights int     // default 4
-	Top       int     // results to return (default 5)
-	FlexDays  int     // how many start-of-trip candidates to enumerate (default: all Fridays in window)
+	Origin     string  // IATA (default: first home_airport from prefs)
+	From       string  // earliest depart date YYYY-MM-DD (required)
+	Until      string  // latest return date YYYY-MM-DD (required)
+	Budget     float64 // max total EUR (required)
+	MinNights  int     // default 2
+	MaxNights  int     // default 4
+	Top        int     // results to return (default 5)
+	FlexDays   int     // how many start-of-trip candidates to enumerate (default: all Fridays in window)
 }
 
 // DiscoverResult is a single ranked trip option.
 type DiscoverResult struct {
-	Destination string  `json:"destination"`
-	AirportCode string  `json:"airport_code"`
-	DepartDate  string  `json:"depart_date"`
-	ReturnDate  string  `json:"return_date"`
-	Nights      int     `json:"nights"`
-	FlightPrice float64 `json:"flight_price"`
-	HotelPrice  float64 `json:"hotel_price"`
-	HotelName   string  `json:"hotel_name"`
-	HotelRating float64 `json:"hotel_rating"`
-	Total       float64 `json:"total"`
-	Currency    string  `json:"currency"`
-	ValueScore  float64 `json:"value_score"`  // 0..1 — higher is better
-	BudgetSlack float64 `json:"budget_slack"` // currency units remaining
-	Reasoning   string  `json:"reasoning,omitempty"`
-	// RequestMatch is the 0..100 score describing how close this offered
-	// itinerary is to the user's literal ask. 100 = exact-on-every-axis.
-	// MIK-3063: orthogonal to ValueScore (which judges the offer's quality).
-	RequestMatch       int    `json:"request_match,omitempty"`
-	RequestMatchReason string `json:"request_match_reason,omitempty"`
+	Destination    string             `json:"destination"`
+	AirportCode    string             `json:"airport_code"`
+	DepartDate     string             `json:"depart_date"`
+	ReturnDate     string             `json:"return_date"`
+	Nights         int                `json:"nights"`
+	FlightPrice    float64            `json:"flight_price"`
+	HotelPrice     float64            `json:"hotel_price"`
+	HotelName      string             `json:"hotel_name"`
+	HotelRating    float64            `json:"hotel_rating"`
+	Total          float64            `json:"total"`
+	Currency       string             `json:"currency"`
+	ProfileMatch   int                `json:"profile_match"`                     // 0–100; replaces ValueScore
+	MatchBreakdown map[string]float64 `json:"match_breakdown,omitempty"`          // per-factor scores in [0,1]
+	RequestMatch   int                `json:"request_match,omitempty"`            // 0–100; literal-request match
+	RequestMatchReason string         `json:"request_match_reason,omitempty"`     // dominant penalty axis
+	BudgetSlack    float64            `json:"budget_slack"`                       // currency units remaining
+	Reasoning      string             `json:"reasoning,omitempty"`
 }
 
 // DiscoverOutput is the top-level response.
@@ -90,7 +89,8 @@ func (o *DiscoverOptions) applyDefaults() {
 // The strategy is "explore-then-verify": query Google's explore API for each
 // candidate weekend to get cheapest destinations, then search real hotel
 // prices for top candidates with preferences applied. Results are ranked by
-// a value score that rewards hotel quality and remaining budget slack.
+// ProfileMatch score (0-100) — how well each trip matches the user's full
+// travel profile.
 func Discover(ctx context.Context, opts DiscoverOptions) (*DiscoverOutput, error) {
 	opts.applyDefaults()
 
@@ -303,11 +303,8 @@ func Discover(ctx context.Context, opts DiscoverOptions) (*DiscoverOutput, error
 	}
 	hotelWg.Wait()
 
-	// MIK-3063: build the RequestMatch anchor once, then pass it down so
-	// every ranked DiscoverResult can carry a 0..100 fidelity score.
-	matchReq := buildDiscoverMatchRequest(opts, fromDate, untilDate, currency)
-
-	results := rankDiscoverTrials(trials, hotelResults, opts.Budget, currency, opts.Top, matchReq)
+	results := rankDiscoverTrials(trials, hotelResults, opts.Budget, currency, opts.Top,
+		buildDiscoverMatchRequest(opts, fromDate, untilDate, currency))
 
 	return &DiscoverOutput{
 		Success: true,
@@ -347,46 +344,35 @@ type discoverHotelInfo struct {
 	rating float64
 }
 
-// rankDiscoverTrials scores and ranks discover candidates by value.
-//
-// Phase 3: build ranked results. Score each candidate by value:
-//
-//	value = budget_fit * quality
-//
-// where:
-//
-//	budget_fit = max(0, 1 - total/budget)  (1.0 when free, 0 when at budget)
-//	quality   = 0.5 + 0.5 * (rating / 5)   (0.5..1.0 — rating is a multiplier)
-//
-// This rewards trips that come in well under budget AT a quality hotel,
-// and penalizes trips that blow budget or have weak ratings.
-// buildDiscoverMatchRequest constructs the match.Request anchor used to
-// score every DiscoverResult. The date window centres on the midpoint of
-// [fromDate, untilDate]; the no-penalty range is half the window length
-// so dates anywhere inside the user-supplied window stay at 100. Nights
-// anchor on the midpoint of [MinNights, MaxNights] with no flex, so a
-// trip taking exactly the asked-for duration scores 100 and a trip at
-// either extreme drops by at most half the night range × the per-night
-// penalty (small, but visible — the AC requires a non-trivial signal).
-func buildDiscoverMatchRequest(opts DiscoverOptions, fromDate, untilDate time.Time, currency string) match.Request {
-	center := fromDate.Add(untilDate.Sub(fromDate) / 2)
-	halfWindowDays := int(untilDate.Sub(fromDate).Hours()/24) / 2
-	if halfWindowDays < 0 {
-		halfWindowDays = 0
+// buildDiscoverMatchRequest converts DiscoverOptions and a date window into a
+// match.Request so that each candidate trip can be scored for literal-request
+// fit via match.Compute.
+func buildDiscoverMatchRequest(opts DiscoverOptions, from, until time.Time, currency string) match.Request {
+	nights := (opts.MinNights + opts.MaxNights) / 2
+	if nights < 1 {
+		nights = 1
 	}
-	idealNights := (opts.MinNights + opts.MaxNights) / 2
-	if idealNights < 1 {
-		idealNights = 1
+	halfWindow := int(until.Sub(from).Hours()/24) / 2
+	if halfWindow < 0 {
+		halfWindow = 0
 	}
+	mid := from.AddDate(0, 0, halfWindow)
 	return match.Request{
-		DepartDate:     center,
-		DateWindowDays: halfWindowDays,
-		PrimaryOrigin:  opts.Origin,
-		Nights:         idealNights,
-		Currency:       currency,
+		OriginIATA:       opts.Origin,
+		DepartDateCenter: mid.Format("2006-01-02"),
+		FlexDays:         halfWindow,
+		DateWindowDays:   halfWindow * 2,
+		Nights:           nights,
+		MaxNightsDrift:   (opts.MaxNights - opts.MinNights) / 2,
+		Currency:         currency,
 	}
 }
 
+// rankDiscoverTrials scores and ranks discover candidates.
+//
+// Each candidate receives a RequestMatch score (0–100) measuring how closely
+// the literal request was satisfied, and a ProfileMatch score (0–100) from the
+// user's preference profile. Results are sorted by RequestMatch descending.
 func rankDiscoverTrials(trials []discoverTrial, hotelResults map[discoverTrialKey]*discoverHotelInfo, budget float64, currency string, top int, matchReq match.Request) []DiscoverResult {
 	var results []DiscoverResult
 	for _, t := range trials {
@@ -401,15 +387,6 @@ func rankDiscoverTrials(trials []discoverTrial, hotelResults map[discoverTrialKe
 			continue
 		}
 
-		budgetFit := 1.0 - (total / budget)
-		if budgetFit < 0 {
-			budgetFit = 0
-		}
-		quality := 0.5
-		if h.rating > 0 {
-			quality = 0.5 + 0.5*(h.rating/5.0)
-		}
-		valueScore := budgetFit * quality
 		slack := budget - total
 
 		cityName := t.dest.CityName
@@ -417,16 +394,28 @@ func rankDiscoverTrials(trials []discoverTrial, hotelResults map[discoverTrialKe
 			cityName = models.LookupAirportName(t.dest.AirportCode)
 		}
 
-		reasoning := buildDiscoverReasoning(quality, budgetFit, h.rating, slack, currency)
+		input := scoring.DiscoverInput{
+			AirportCode: t.dest.AirportCode,
+			CityName:    cityName,
+			FlightPrice: t.dest.Price,
+			HotelPrice:  h.total,
+			Total:       total,
+			Budget:      budget,
+			HotelRating: h.rating,
+			HotelName:   h.name,
+		}
 
-		// MIK-3063: score this offer against the user's literal ask.
+		matchScore, breakdown := scoring.ComputeProfileMatch(nil, input)
+		reasoning := buildDiscoverReasoning(h.rating, slack, currency)
+
 		offered := match.Offered{
-			DepartDate: t.window.start,
-			Origin:     matchReq.PrimaryOrigin,
-			Nights:     t.window.nights,
+			OriginIATA: matchReq.OriginIATA,
+			DestIATA:   t.dest.AirportCode,
+			DepartDate: t.window.start.Format("2006-01-02"),
+			ReturnDate: t.window.end.Format("2006-01-02"),
 			Currency:   currency,
 		}
-		ms := match.Compute(matchReq, offered)
+		reqScore := match.Compute(matchReq, offered)
 
 		results = append(results, DiscoverResult{
 			Destination:        cityName,
@@ -437,20 +426,24 @@ func rankDiscoverTrials(trials []discoverTrial, hotelResults map[discoverTrialKe
 			FlightPrice:        t.dest.Price,
 			HotelPrice:         h.total,
 			HotelName:          h.name,
-			RequestMatch:       ms.Total,
-			RequestMatchReason: ms.Reason,
 			HotelRating:        h.rating,
 			Total:              total,
 			Currency:           currency,
-			ValueScore:         valueScore,
+			ProfileMatch:       matchScore,
+			MatchBreakdown:     breakdown,
+			RequestMatch:       reqScore.Total,
+			RequestMatchReason: matchReasonForDisplay(reqScore.Reason),
 			BudgetSlack:        slack,
 			Reasoning:          reasoning,
 		})
 	}
 
-	// Rank by value score descending.
+	// Rank by request match descending; break ties with profile match.
 	sort.Slice(results, func(i, j int) bool {
-		return results[i].ValueScore > results[j].ValueScore
+		if results[i].RequestMatch != results[j].RequestMatch {
+			return results[i].RequestMatch > results[j].RequestMatch
+		}
+		return results[i].ProfileMatch > results[j].ProfileMatch
 	})
 	if len(results) > top {
 		results = results[:top]
@@ -459,7 +452,7 @@ func rankDiscoverTrials(trials []discoverTrial, hotelResults map[discoverTrialKe
 	return results
 }
 
-func buildDiscoverReasoning(quality, budgetFit, rating, slack float64, currency string) string {
+func buildDiscoverReasoning(rating, slack float64, currency string) string {
 	var parts []string
 	if rating > 0 {
 		parts = append(parts, fmt.Sprintf("%.1f★ hotel", rating))
@@ -467,7 +460,15 @@ func buildDiscoverReasoning(quality, budgetFit, rating, slack float64, currency 
 	if slack > 0 {
 		parts = append(parts, fmt.Sprintf("%s %.0f under budget", currency, slack))
 	}
-	_ = quality
-	_ = budgetFit
 	return strings.Join(parts, ", ")
+}
+
+// matchReasonForDisplay converts the match package's internal "exact_match"
+// sentinel to an empty string — UIs and tests should show no reason when the
+// match is perfect.
+func matchReasonForDisplay(reason string) string {
+	if reason == "exact_match" {
+		return ""
+	}
+	return reason
 }
