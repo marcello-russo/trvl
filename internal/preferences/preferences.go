@@ -76,6 +76,23 @@ type Preferences struct {
 
 	// Family members for booking on behalf of
 	FamilyMembers []FamilyMember `json:"family_members,omitempty"`
+
+	// ProfileMatch scoring configuration.
+	//
+	// MatchWeights overrides the default factor weights used by scoring.ComputeProfileMatch.
+	// Only factors with a non-negative value are overridden; missing keys keep the default.
+	// Example: {"budget_fit": 30.0, "bucket_list_boost": 15.0}
+	MatchWeights map[string]float64 `json:"match_weights,omitempty"`
+
+	// AirportAffinity maps destination IATA codes to an affinity score in [0,1].
+	// Populated automatically as the user accepts or rejects suggestions.
+	// Example: {"BCN": 0.9, "WAW": 0.1}
+	AirportAffinity map[string]float64 `json:"airport_affinity,omitempty"`
+
+	// ExcludedDestinations is a list of airport codes or city names that are
+	// hard-excluded from all results (ProfileMatch returns 0 for these).
+	// The warsaw_filter factor reflects this exclusion in the score breakdown.
+	ExcludedDestinations []string `json:"excluded_destinations,omitempty"`
 }
 
 // FamilyMember represents a person the user may book travel for.

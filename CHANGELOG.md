@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+- **`ValueScore` removed** — `DiscoverResult.value_score` (float64, 0-1) is replaced by `ProfileMatch` (int, 0-100) and `MatchBreakdown` (map[string]float64). Consumers of the `value_score` JSON field must migrate to `profile_match`. The score is computed on-demand; no data migration is required. To restore the old behaviour, revert the commit introducing this change.
+
 ### Added
+- **`ProfileMatch` score** — `DiscoverResult.profile_match` (int 0-100) is a weighted sum across 12 factors: budget_fit, loyalty_earn, time_window_fit, directness, district_match, airport_affinity, early_connection_compliance, status_retention, lounge_at_transit, bucket_list_boost, warsaw_filter (hard exclusion), family_mode_compatibility. Factor weights are user-tunable via `match_weights` in `preferences.json`.
+- **Per-factor breakdown** — `DiscoverResult.match_breakdown` (map[string]float64) exposes per-factor scores in [0,1] so users can see exactly why a trip scored 73 instead of 91.
+- **`--explain` flag** — `trvl discover --explain` prints an ASCII progress bar table of per-factor scores beneath the main result table.
+- **`match_weights` in preferences** — user can override default factor weights; missing keys keep the built-in default.
+- **`airport_affinity` in preferences** — maps destination IATA codes to affinity scores in [0,1]; used by the airport_affinity factor.
+- **`excluded_destinations` in preferences** — hard-excludes cities or airport codes from all results (warsaw_filter returns 0 for these; ProfileMatch returns 0 for the whole result).
 - **`FixHintCode` enum** — typed root-cause classifier (`AKAMAI_BLOCK`, `DNS_FAIL`, `TLS_TIMEOUT`, `COOKIE_EXPIRED`, `RATE_LIMITED`, `RESPONSE_SHAPE_CHANGED`, `PREFLIGHT_FAILED`, `UNCLASSIFIED`) surfaced in MCP search responses (`fix_hint_code` field on `provider_statuses`) and in the `provider_health` aggregate (`last_hint_code`); persisted per-entry in `~/.trvl/health.jsonl` (`hint_code` field)
 
 ### Changed
