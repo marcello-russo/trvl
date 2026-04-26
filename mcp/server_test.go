@@ -128,8 +128,8 @@ func TestToolsList(t *testing.T) {
 		t.Fatalf("unmarshal result: %v", err)
 	}
 
-	if len(result.Tools) != 54 {
-		t.Fatalf("expected 54 tools, got %d", len(result.Tools))
+	if len(result.Tools) != 56 {
+		t.Fatalf("expected 56 tools, got %d", len(result.Tools))
 	}
 
 	expected := map[string]bool{

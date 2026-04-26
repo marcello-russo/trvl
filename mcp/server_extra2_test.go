@@ -51,11 +51,11 @@ func TestNewServer(t *testing.T) {
 	if s == nil {
 		t.Fatal("NewServer returned nil")
 	}
-	if len(s.tools) != 54 {
-		t.Errorf("expected 54 tools, got %d", len(s.tools))
+	if len(s.tools) != 56 {
+		t.Errorf("expected 56 tools, got %d", len(s.tools))
 	}
-	if len(s.handlers) != 54 {
-		t.Errorf("expected 54 handlers, got %d", len(s.handlers))
+	if len(s.handlers) != 56 {
+		t.Errorf("expected 56 handlers, got %d", len(s.handlers))
 	}
 }
 
@@ -173,6 +173,7 @@ func TestToolAnnotations(t *testing.T) {
 		"build_profile":           true,
 		"add_booking":             true,
 		"watch_price":             true,
+		"watch_opportunities":     true,
 	}
 
 	// Tools that create new resources on each call — not idempotent.
@@ -181,6 +182,7 @@ func TestToolAnnotations(t *testing.T) {
 		"add_booking":             true,
 		"watch_price":             true,
 		"check_watches":           true,
+		"watch_opportunities":     true,
 	}
 
 	s := NewServer()

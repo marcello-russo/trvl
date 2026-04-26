@@ -47,6 +47,15 @@ type Watch struct {
 	HotelName    string   `json:"hotel_name,omitempty"`    // hotel name for room availability lookups
 	RoomKeywords []string `json:"room_keywords,omitempty"` // all keywords must match room name+description
 	MatchedRoom  string   `json:"matched_room,omitempty"`  // last matched room name (for display)
+
+	// Opportunity watch fields (Type == "opportunity").
+	// Favourites defaults to BucketList ∪ PreviousTrips ∩ AirportAffinity≥0.3 if empty.
+	Favourites []string `json:"favourites,omitempty"`  // IATA codes
+	WindowFrom string   `json:"window_from,omitempty"` // YYYY-MM-DD or "next_Nd" (e.g. "next_30d")
+	WindowTo   string   `json:"window_to,omitempty"`   // YYYY-MM-DD or "next_Nd"
+	MinScore   int      `json:"min_score,omitempty"`   // default 85
+	MinNights  int      `json:"min_nights,omitempty"`  // default 3
+	MaxNights  int      `json:"max_nights,omitempty"`  // default 14
 }
 
 // IsRouteWatch returns true if this watch monitors a route without specific dates.
@@ -62,6 +71,11 @@ func (w Watch) IsDateRange() bool {
 // IsRoomWatch returns true if this watch monitors room availability.
 func (w Watch) IsRoomWatch() bool {
 	return w.Type == "room"
+}
+
+// IsOpportunityWatch returns true if this watch is an opportunity watch.
+func (w Watch) IsOpportunityWatch() bool {
+	return w.Type == "opportunity"
 }
 
 // MatchRoomKeywords checks whether all keywords appear (case-insensitive) in the
@@ -107,6 +121,14 @@ func (w Watch) Validate() error {
 		}
 		if w.DepartDate == "" || w.ReturnDate == "" {
 			return fmt.Errorf("room watch requires check-in (depart_date) and check-out (return_date)")
+		}
+		return nil
+	}
+
+	// Opportunity watch validation.
+	if w.IsOpportunityWatch() {
+		if len(w.Favourites) == 0 && w.MinNights <= 0 {
+			return fmt.Errorf("opportunity watch requires favourites or a min_nights value")
 		}
 		return nil
 	}
