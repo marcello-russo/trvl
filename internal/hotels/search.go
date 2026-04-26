@@ -2,6 +2,7 @@ package hotels
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -172,9 +173,81 @@ const pageSize = 20
 // Known values: 3=highest rated, 4=most reviewed, 8=price low-to-high.
 var googleSortOrders = []string{"", "3", "8"}
 
-// hotelSearchKey builds a singleflight dedup key from the search parameters.
-func hotelSearchKey(location, checkIn, checkOut string, guests int) string {
-	return fmt.Sprintf("hotel|%s|%s|%s|%d", location, checkIn, checkOut, guests)
+// hotelSearchKey builds a singleflight dedup key from every option that can
+// affect fetched, enriched, or post-filtered hotel results.
+func hotelSearchKey(location string, opts HotelSearchOptions) string {
+	amenities := append([]string(nil), opts.Amenities...)
+	sort.Strings(amenities)
+	key := struct {
+		Location         string   `json:"location"`
+		CheckIn          string   `json:"check_in"`
+		CheckOut         string   `json:"check_out"`
+		Guests           int      `json:"guests"`
+		Stars            int      `json:"stars"`
+		Sort             string   `json:"sort"`
+		Currency         string   `json:"currency"`
+		MinPrice         float64  `json:"min_price"`
+		MaxPrice         float64  `json:"max_price"`
+		MinRating        float64  `json:"min_rating"`
+		MaxDistanceKm    float64  `json:"max_distance_km"`
+		Amenities        []string `json:"amenities,omitempty"`
+		CenterLat        float64  `json:"center_lat"`
+		CenterLon        float64  `json:"center_lon"`
+		EnrichAmenities  bool     `json:"enrich_amenities"`
+		EnrichLimit      int      `json:"enrich_limit"`
+		MaxPages         int      `json:"max_pages"`
+		FreeCancellation bool     `json:"free_cancellation"`
+		PropertyType     string   `json:"property_type"`
+		Brand            string   `json:"brand"`
+		EcoCertified     bool     `json:"eco_certified"`
+		MinBedrooms      int      `json:"min_bedrooms"`
+		MinBathrooms     int      `json:"min_bathrooms"`
+		MinBeds          int      `json:"min_beds"`
+		RoomType         string   `json:"room_type"`
+		Superhost        bool     `json:"superhost"`
+		InstantBook      bool     `json:"instant_book"`
+		MaxDistanceM     int      `json:"max_distance_m"`
+		Sustainable      bool     `json:"sustainable"`
+		MealPlan         bool     `json:"meal_plan"`
+		IncludeSoldOut   bool     `json:"include_sold_out"`
+	}{
+		Location:         location,
+		CheckIn:          opts.CheckIn,
+		CheckOut:         opts.CheckOut,
+		Guests:           opts.Guests,
+		Stars:            opts.Stars,
+		Sort:             opts.Sort,
+		Currency:         opts.Currency,
+		MinPrice:         opts.MinPrice,
+		MaxPrice:         opts.MaxPrice,
+		MinRating:        opts.MinRating,
+		MaxDistanceKm:    opts.MaxDistanceKm,
+		Amenities:        amenities,
+		CenterLat:        opts.CenterLat,
+		CenterLon:        opts.CenterLon,
+		EnrichAmenities:  opts.EnrichAmenities,
+		EnrichLimit:      opts.EnrichLimit,
+		MaxPages:         opts.MaxPages,
+		FreeCancellation: opts.FreeCancellation,
+		PropertyType:     opts.PropertyType,
+		Brand:            opts.Brand,
+		EcoCertified:     opts.EcoCertified,
+		MinBedrooms:      opts.MinBedrooms,
+		MinBathrooms:     opts.MinBathrooms,
+		MinBeds:          opts.MinBeds,
+		RoomType:         opts.RoomType,
+		Superhost:        opts.Superhost,
+		InstantBook:      opts.InstantBook,
+		MaxDistanceM:     opts.MaxDistanceM,
+		Sustainable:      opts.Sustainable,
+		MealPlan:         opts.MealPlan,
+		IncludeSoldOut:   opts.IncludeSoldOut,
+	}
+	data, err := json.Marshal(key)
+	if err != nil {
+		return fmt.Sprintf("hotel|%s|%s|%s|%d|%s", location, opts.CheckIn, opts.CheckOut, opts.Guests, opts.Currency)
+	}
+	return "hotel|" + string(data)
 }
 
 // SearchHotelsWithClient is like SearchHotels but reuses the provided client.
@@ -188,6 +261,8 @@ func SearchHotelsWithClient(ctx context.Context, client *batchexec.Client, locat
 	}
 	if opts.Currency == "" {
 		opts.Currency = "USD" // Google's default when no currency specified
+	} else {
+		opts.Currency = strings.ToUpper(opts.Currency)
 	}
 
 	// Validate dates.
@@ -200,7 +275,7 @@ func SearchHotelsWithClient(ctx context.Context, client *batchexec.Client, locat
 		return nil, fmt.Errorf("parse check-out date: %w", err)
 	}
 
-	key := hotelSearchKey(location, opts.CheckIn, opts.CheckOut, opts.Guests)
+	key := hotelSearchKey(location, opts)
 	v, sfErr, _ := hotelGroup.Do(key, func() (any, error) {
 		return searchHotelsCore(ctx, client, location, opts)
 	})

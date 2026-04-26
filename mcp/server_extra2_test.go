@@ -70,6 +70,9 @@ func TestNewHTTPServer(t *testing.T) {
 	if hs.port != 8080 {
 		t.Errorf("port = %d, want 8080", hs.port)
 	}
+	if hs.host != defaultHTTPHost {
+		t.Errorf("host = %q, want %q", hs.host, defaultHTTPHost)
+	}
 	if hs.server == nil {
 		t.Error("server is nil")
 	}
@@ -173,6 +176,9 @@ func TestToolAnnotations(t *testing.T) {
 		"build_profile":           true,
 		"add_booking":             true,
 		"watch_price":             true,
+		"create_trip":             true,
+		"add_trip_leg":            true,
+		"mark_trip_booked":        true,
 	}
 
 	// Tools that create new resources on each call — not idempotent.
@@ -184,6 +190,9 @@ func TestToolAnnotations(t *testing.T) {
 		// find_interactive can trigger elicitation and sampling, whose replies
 		// are not reproducible across calls — flag it non-idempotent.
 		"find_interactive": true,
+		"create_trip":      true,
+		"add_trip_leg":     true,
+		"mark_trip_booked": true,
 	}
 
 	s := NewServer()

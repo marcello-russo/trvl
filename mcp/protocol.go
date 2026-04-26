@@ -123,10 +123,10 @@ type ToolDef struct {
 // ToolAnnotations provides metadata hints about a tool's behavior.
 type ToolAnnotations struct {
 	Title           string `json:"title,omitempty"`
-	ReadOnlyHint    bool   `json:"readOnlyHint,omitempty"`
-	DestructiveHint bool   `json:"destructiveHint,omitempty"`
-	IdempotentHint  bool   `json:"idempotentHint,omitempty"`
-	OpenWorldHint   bool   `json:"openWorldHint,omitempty"`
+	ReadOnlyHint    bool   `json:"readOnlyHint"`
+	DestructiveHint bool   `json:"destructiveHint"`
+	IdempotentHint  bool   `json:"idempotentHint"`
+	OpenWorldHint   bool   `json:"openWorldHint"`
 }
 
 // InputSchema is a JSON Schema describing the tool's input parameters.

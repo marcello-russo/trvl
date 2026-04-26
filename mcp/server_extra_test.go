@@ -41,6 +41,29 @@ func TestHTTPHandler_POST_Initialize(t *testing.T) {
 	}
 }
 
+func TestHTTPHandler_POST_RequiresBearerTokenWhenConfigured(t *testing.T) {
+	t.Parallel()
+	hs := NewHTTPServerWithOptions(HTTPServerOptions{Port: 0, Token: "secret-token"})
+
+	req := Request{JSONRPC: "2.0", ID: float64(1), Method: "initialize"}
+	body, _ := json.Marshal(req)
+
+	rr := httptest.NewRecorder()
+	httpReq := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+	hs.handleMCP(rr, httpReq)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status without token = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+
+	rr = httptest.NewRecorder()
+	httpReq = httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+	httpReq.Header.Set("Authorization", "Bearer secret-token")
+	hs.handleMCP(rr, httpReq)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status with token = %d, want %d", rr.Code, http.StatusOK)
+	}
+}
+
 func TestHTTPHandler_POST_ToolsList(t *testing.T) {
 	t.Parallel()
 	hs := NewHTTPServer(0)
@@ -513,4 +536,3 @@ func TestServeStdio_ManyEmptyLines(t *testing.T) {
 }
 
 // --- writeJSON ---
-

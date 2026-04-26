@@ -54,12 +54,30 @@ func TestHotelSingleflight(t *testing.T) {
 // TestHotelSearchKey verifies that different parameter combinations produce
 // distinct keys, preventing incorrect deduplication.
 func TestHotelSearchKey(t *testing.T) {
-	k1 := hotelSearchKey("Paris", "2026-06-15", "2026-06-18", 2)
-	k2 := hotelSearchKey("Paris", "2026-06-16", "2026-06-18", 2) // different check-in
-	k3 := hotelSearchKey("London", "2026-06-15", "2026-06-18", 2) // different city
-	k4 := hotelSearchKey("Paris", "2026-06-15", "2026-06-18", 3)  // different guests
+	base := HotelSearchOptions{CheckIn: "2026-06-15", CheckOut: "2026-06-18", Guests: 2, Currency: "USD"}
+	changedCheckIn := base
+	changedCheckIn.CheckIn = "2026-06-16"
+	changedGuests := base
+	changedGuests.Guests = 3
+	changedCurrency := base
+	changedCurrency.Currency = "EUR"
+	changedStars := base
+	changedStars.Stars = 5
+	changedMaxPages := base
+	changedMaxPages.MaxPages = 1
+	changedFilter := base
+	changedFilter.MinPrice = 100
 
-	keys := []string{k1, k2, k3, k4}
+	k1 := hotelSearchKey("Paris", base)
+	k2 := hotelSearchKey("Paris", changedCheckIn)
+	k3 := hotelSearchKey("London", base)
+	k4 := hotelSearchKey("Paris", changedGuests)
+	k5 := hotelSearchKey("Paris", changedCurrency)
+	k6 := hotelSearchKey("Paris", changedStars)
+	k7 := hotelSearchKey("Paris", changedMaxPages)
+	k8 := hotelSearchKey("Paris", changedFilter)
+
+	keys := []string{k1, k2, k3, k4, k5, k6, k7, k8}
 	for i := range keys {
 		for j := i + 1; j < len(keys); j++ {
 			if keys[i] == keys[j] {
@@ -69,7 +87,7 @@ func TestHotelSearchKey(t *testing.T) {
 	}
 
 	// Same inputs must produce the same key.
-	k1again := hotelSearchKey("Paris", "2026-06-15", "2026-06-18", 2)
+	k1again := hotelSearchKey("Paris", base)
 	if k1 != k1again {
 		t.Errorf("same inputs produced different keys: %q vs %q", k1, k1again)
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -32,8 +33,11 @@ func NewRegistry() (*Registry, error) {
 // NewRegistryAt creates a Registry backed by the given directory.
 // This is useful for testing with a temporary directory.
 func NewRegistryAt(dir string) (*Registry, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("providers: create dir: %w", err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("providers: secure dir: %w", err)
 	}
 
 	r := &Registry{
@@ -65,6 +69,9 @@ func NewRegistryAt(dir string) (*Registry, error) {
 		// rather than loaded silently.
 		if err := Migrate(&cfg); err != nil {
 			return nil, fmt.Errorf("providers: migrate %s: %w", entry.Name(), err)
+		}
+		if !validProviderID(cfg.ID) {
+			return nil, fmt.Errorf("providers: invalid id %q in %s", cfg.ID, entry.Name())
 		}
 		r.configs[cfg.ID] = &cfg
 		if info, err := os.Stat(path); err == nil {
@@ -119,6 +126,9 @@ func (r *Registry) Save(config *ProviderConfig) error {
 }
 
 func (r *Registry) saveLocked(config *ProviderConfig) error {
+	if config == nil {
+		return fmt.Errorf("providers: nil config")
+	}
 	// MIK-3075: stamp the schema version on every save so freshly written
 	// configs always carry the version this binary supports. Older
 	// in-memory configs that have already passed Migrate are safe — the
@@ -130,8 +140,11 @@ func (r *Registry) saveLocked(config *ProviderConfig) error {
 	if err != nil {
 		return fmt.Errorf("providers: marshal %s: %w", config.ID, err)
 	}
-	path := filepath.Join(r.dir, config.ID+".json")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	path, err := r.configPath(config.ID)
+	if err != nil {
+		return err
+	}
+	if err := writeProviderFile(path, r.dir, data); err != nil {
 		return fmt.Errorf("providers: write %s: %w", config.ID, err)
 	}
 	r.configs[config.ID] = config
@@ -153,7 +166,10 @@ func (r *Registry) Delete(id string) error {
 		return fmt.Errorf("providers: %s not found", id)
 	}
 
-	path := filepath.Join(r.dir, id+".json")
+	path, err := r.configPath(id)
+	if err != nil {
+		return err
+	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("providers: delete %s: %w", id, err)
 	}
@@ -186,7 +202,10 @@ func (r *Registry) Reload(id string) (*ProviderConfig, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	path := filepath.Join(r.dir, id+".json")
+	path, err := r.configPath(id)
+	if err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("providers: reload %s: %w", id, err)
@@ -197,6 +216,9 @@ func (r *Registry) Reload(id string) (*ProviderConfig, error) {
 	}
 	if err := Migrate(&cfg); err != nil {
 		return nil, fmt.Errorf("providers: migrate %s: %w", id, err)
+	}
+	if !validProviderID(cfg.ID) {
+		return nil, fmt.Errorf("providers: invalid id %q in %s", cfg.ID, path)
 	}
 	r.configs[cfg.ID] = &cfg
 	if info, err := os.Stat(path); err == nil {
@@ -210,7 +232,10 @@ func (r *Registry) Reload(id string) (*ProviderConfig, error) {
 // in-memory config. Safe to call on every request — the common path is a
 // single os.Stat and no JSON parse or write-lock acquisition.
 func (r *Registry) ReloadIfChanged(id string) *ProviderConfig {
-	path := filepath.Join(r.dir, id+".json")
+	path, err := r.configPath(id)
+	if err != nil {
+		return nil
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		r.mu.RLock()
@@ -247,9 +272,56 @@ func (r *Registry) ReloadIfChanged(id string) *ProviderConfig {
 		// hot path; surface the migration error via slog only.
 		return r.configs[id]
 	}
+	if !validProviderID(cfg.ID) {
+		return r.configs[id]
+	}
 	r.configs[cfg.ID] = &cfg
 	r.loadedAt[cfg.ID] = info.ModTime()
 	return &cfg
+}
+
+func (r *Registry) configPath(id string) (string, error) {
+	if !validProviderID(id) {
+		return "", fmt.Errorf("providers: invalid id %q", id)
+	}
+	dir, err := filepath.Abs(r.dir)
+	if err != nil {
+		return "", fmt.Errorf("providers: resolve dir: %w", err)
+	}
+	path := filepath.Join(dir, id+".json")
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return "", fmt.Errorf("providers: resolve path for %s: %w", id, err)
+	}
+	if rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("providers: invalid path for id %q", id)
+	}
+	return path, nil
+}
+
+func writeProviderFile(path, dir string, data []byte) error {
+	tmp, err := os.CreateTemp(dir, ".provider-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
 }
 
 // MarkSuccess records a successful request for the given provider.

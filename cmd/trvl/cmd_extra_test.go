@@ -412,7 +412,9 @@ func TestMcpCmd_Flags(t *testing.T) {
 		defValue string
 	}{
 		{"http", "false"},
+		{"host", "127.0.0.1"},
 		{"port", "8080"},
+		{"token", ""},
 	}
 	for _, tt := range flags {
 		f := cmd.Flags().Lookup(tt.name)

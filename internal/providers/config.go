@@ -7,8 +7,11 @@ package providers
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"time"
 )
+
+var providerIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 // ProviderConfig is the main configuration for a single external provider.
 type ProviderConfig struct {
@@ -17,13 +20,13 @@ type ProviderConfig struct {
 	// field are treated as the v0 baseline and migrated forward at load time.
 	// Configs declaring a version newer than CurrentSchemaVersion are
 	// rejected with a clear error rather than loaded silently.
-	SchemaVersion   string            `json:"schema_version,omitempty"`
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Category        string            `json:"category"` // "hotel", "transport", "restaurant", ...
-	Endpoint        string            `json:"endpoint"`
-	Method          string            `json:"method"` // "GET" or "POST"
-	Headers         map[string]string `json:"headers,omitempty"`
+	SchemaVersion string            `json:"schema_version,omitempty"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Category      string            `json:"category"` // "hotel", "transport", "restaurant", ...
+	Endpoint      string            `json:"endpoint"`
+	Method        string            `json:"method"` // "GET" or "POST"
+	Headers       map[string]string `json:"headers,omitempty"`
 	// HeaderOrder specifies the order in which request headers should be sent.
 	// When set, headers are added to the request in this order rather than
 	// map iteration order (which is random in Go). This is critical for
@@ -109,10 +112,10 @@ type ProviderConfig struct {
 // FilterComposite describes how to build a compound URL parameter from
 // individual filter variables. See ProviderConfig.FilterComposite.
 type FilterComposite struct {
-	TargetVar string             `json:"target_var"`                 // output variable name (e.g. "nflt")
-	Separator string             `json:"separator"`                  // URL-encoded separator (e.g. "%3B")
-	Parts     map[string]string  `json:"parts"`                      // filter_var → url_prefix mapping
-	Scales    map[string]float64 `json:"scales,omitempty"`           // filter_var → multiplier (e.g. min_rating × 10 for Booking's 0-100 scale)
+	TargetVar string             `json:"target_var"`       // output variable name (e.g. "nflt")
+	Separator string             `json:"separator"`        // URL-encoded separator (e.g. "%3B")
+	Parts     map[string]string  `json:"parts"`            // filter_var → url_prefix mapping
+	Scales    map[string]float64 `json:"scales,omitempty"` // filter_var → multiplier (e.g. min_rating × 10 for Booking's 0-100 scale)
 }
 
 // CityResolverConfig describes how to dynamically resolve a city name to a
@@ -153,22 +156,22 @@ type CityResolverConfig struct {
 
 // AuthConfig describes how to authenticate with the provider.
 type AuthConfig struct {
-	Type         string                `json:"type"` // "none", "header", "preflight"
-	PreflightURL string                `json:"preflight_url,omitempty"`
+	Type         string `json:"type"` // "none", "header", "preflight"
+	PreflightURL string `json:"preflight_url,omitempty"`
 	// PreflightMethod defaults to GET. Set to POST for OAuth2-style token exchange.
-	PreflightMethod string             `json:"preflight_method,omitempty"`
+	PreflightMethod string `json:"preflight_method,omitempty"`
 	// PreflightBody is the request body for POST preflights (supports ${var} substitution).
-	PreflightBody string               `json:"preflight_body,omitempty"`
+	PreflightBody string `json:"preflight_body,omitempty"`
 	// PreflightHeaders are additional headers for the preflight request.
-	PreflightHeaders map[string]string  `json:"preflight_headers,omitempty"`
-	Extractions  map[string]Extraction  `json:"extractions,omitempty"`
+	PreflightHeaders map[string]string     `json:"preflight_headers,omitempty"`
+	Extractions      map[string]Extraction `json:"extractions,omitempty"`
 	// BrowserEscapeHatch enables the Tier 4 browser-delegation fallback. When
 	// set and the caller has marked the context as interactive via
 	// WithInteractive, runPreflight will open the preflight URL in the user's
 	// browser so they can clear any JS challenge, then re-read cookies via
 	// kooky. Defaults to false for backwards compatibility — providers must
 	// opt in to avoid spontaneously launching browsers for every caller.
-	BrowserEscapeHatch bool             `json:"browser_escape_hatch,omitempty"`
+	BrowserEscapeHatch bool `json:"browser_escape_hatch,omitempty"`
 }
 
 // Extraction describes a regex extraction from a preflight response.
@@ -205,10 +208,10 @@ type Extraction struct {
 //     where the query key is `search({"input":{...giant-JSON...}})` and
 //     varies per request; the path becomes `.searchQueries.search*.results`.
 type ResponseMapping struct {
-	ResultsPath        string            `json:"results_path"`                    // dot-notation path to results array, supports `prefix*` segment wildcard
-	Fields             map[string]string `json:"fields"`                          // model field -> JSON path mapping
+	ResultsPath        string            `json:"results_path"`                   // dot-notation path to results array, supports `prefix*` segment wildcard
+	Fields             map[string]string `json:"fields"`                         // model field -> JSON path mapping
 	BodyExtractPattern string            `json:"body_extract_pattern,omitempty"` // optional regex applied to the HTTP body; capture group 1 becomes the JSON input
-	RatingScale        float64           `json:"rating_scale,omitempty"`          // multiply raw rating by this to normalize to 0-10 (e.g. 2.0 for Booking's 0-5 scale)
+	RatingScale        float64           `json:"rating_scale,omitempty"`         // multiply raw rating by this to normalize to 0-10 (e.g. 2.0 for Booking's 0-5 scale)
 }
 
 // RateLimitConfig controls request pacing.
@@ -224,7 +227,7 @@ type TLSConfig struct {
 
 // CookieConfig controls how cookies are obtained.
 type CookieConfig struct {
-	Source  string `json:"source"`           // "none", "preflight", "browser"
+	Source  string `json:"source"`            // "none", "preflight", "browser"
 	Browser string `json:"browser,omitempty"` // browser name when source is "browser"
 }
 
@@ -288,6 +291,9 @@ func (c *ProviderConfig) Validate() error {
 	if c.ID == "" {
 		return fmt.Errorf("provider config: id is required")
 	}
+	if !validProviderID(c.ID) {
+		return fmt.Errorf("provider config: id %q must match %s", c.ID, providerIDPattern.String())
+	}
 	if c.Name == "" {
 		return fmt.Errorf("provider config: name is required")
 	}
@@ -323,4 +329,8 @@ func (c *ProviderConfig) Validate() error {
 	}
 
 	return nil
+}
+
+func validProviderID(id string) bool {
+	return providerIDPattern.MatchString(id)
 }

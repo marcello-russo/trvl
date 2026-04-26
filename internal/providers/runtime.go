@@ -371,8 +371,8 @@ func (rt *Runtime) SearchHotels(ctx context.Context, location string, lat, lon f
 	// not appear in statuses (existing behavior preserved).
 	live := make([]*ProviderConfig, 0, len(providers))
 	for _, cfg := range providers {
-		if cfg.ErrorCount >= circuitBreakerThreshold && !cfg.LastSuccess.IsZero() &&
-			time.Since(cfg.LastSuccess) > circuitBreakerCooldown {
+		if cfg.ErrorCount >= circuitBreakerThreshold &&
+			(cfg.LastSuccess.IsZero() || time.Since(cfg.LastSuccess) > circuitBreakerCooldown) {
 			slog.Info("circuit breaker: skipping provider",
 				"provider", cfg.ID,
 				"errors", cfg.ErrorCount,
@@ -1347,4 +1347,3 @@ func (rt *Runtime) searchProvider(ctx context.Context, cfg *ProviderConfig, loca
 
 	return hotels, nil
 }
-

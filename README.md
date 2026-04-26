@@ -687,7 +687,7 @@ trvl is part of a suite of MCP tools:
 
 **Hotel search shows 0 results?** Check your dates — Google Hotels requires check-in in the future and at least 1 night. Try: `trvl hotels "London" --checkin 2026-07-01 --checkout 2026-07-03`.
 
-**MCP server crashes on startup?** Run `trvl mcp` directly in your terminal to see the error. Common cause: port conflict when using `--http`. Try a different port with `--port 8081`.
+**MCP server crashes on startup?** Run `trvl mcp` directly in your terminal to see the error. Common cause: port conflict when using `--http`. Try a different port with `--port 8081`. HTTP mode listens on `127.0.0.1` by default and requires `Authorization: Bearer <token>`; set `TRVL_MCP_TOKEN` or use the generated startup token.
 
 ## Thanks
 

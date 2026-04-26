@@ -1711,7 +1711,7 @@ func TestRunEvents_MissingAPIKeyV24(t *testing.T) {
 
 func TestMcpCmd_FlagsV24(t *testing.T) {
 	cmd := mcpCmd()
-	for _, name := range []string{"http", "port"} {
+	for _, name := range []string{"http", "host", "port", "token"} {
 		if f := cmd.Flags().Lookup(name); f == nil {
 			t.Errorf("expected --%s flag on mcpCmd", name)
 		}
