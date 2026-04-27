@@ -254,11 +254,16 @@ func promptWhereShouldIGo(args map[string]any) (*PromptsGetResult, error) {
 		monthLine = fmt.Sprintf(" in %s", month)
 	}
 
+	destinationStep := fmt.Sprintf("Use search_deals with origin=%s to discover affordable destinations and their prices. Note the cheapest 10-15 options.", origin)
+	if month != "" {
+		destinationStep += fmt.Sprintf("\n   - Also run weekend_getaway with origin=%s and month=%s as a second pass for weekend-sized options.", origin, month)
+	}
+
 	prompt := fmt.Sprintf(`I want to travel from %s%s but I'm not sure where to go.%s
 
 Follow these steps:
 
-1. **Explore destinations**: Use explore_destinations with origin=%s to discover available destinations and their prices. Note the cheapest 10-15 options.
+1. **Explore destinations**: %s
 
 2. **Filter and rank**: From the results:
    - Filter by budget if specified
@@ -275,7 +280,7 @@ Follow these steps:
    - A "Premium pick" (best destination if budget allows)
 
 5. **Next steps**: Suggest searching hotels at the top pick, or checking flexible dates with search_dates for the recommended destination.`,
-		origin, monthLine, budgetLine, origin)
+		origin, monthLine, budgetLine, destinationStep)
 
 	desc := fmt.Sprintf("Destination discovery from %s", origin)
 	if month != "" {

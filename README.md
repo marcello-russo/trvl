@@ -102,12 +102,14 @@ claude mcp add trvl --transport stdio -- trvl mcp
 
 ### 3. (Optional) Teach your AI about trvl
 
-If you used the one-command setup above, the skill is already installed. Otherwise, install the bundled skill that teaches Claude how to use trvl optimally:
+If you used the one-command setup above, the skill is already installed. Otherwise, install the bundled skill that teaches Claude how to use trvl optimally, plus the provider-helper skill for safe optional provider setup:
 
 ```bash
-# Install the bundled skill (Claude Code)
+# Install the bundled skills (Claude Code)
 mkdir -p ~/.claude/skills
-curl -fsSL "https://raw.githubusercontent.com/MikkoParkkola/trvl/main/.claude/skills/trvl.md" -o "$HOME/.claude/skills/trvl.md"
+for s in trvl providers; do
+  curl -fsSL "https://raw.githubusercontent.com/MikkoParkkola/trvl/main/.claude/skills/$s.md" -o "$HOME/.claude/skills/$s.md"
+done
 ```
 
 Reference docs for other clients: [AGENTS.md](https://raw.githubusercontent.com/MikkoParkkola/trvl/main/AGENTS.md) (full) · [llms.txt](https://raw.githubusercontent.com/MikkoParkkola/trvl/main/llms.txt) (compact)
