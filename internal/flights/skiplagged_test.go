@@ -223,6 +223,32 @@ func TestSearchSkiplagged_RPCError(t *testing.T) {
 	}
 }
 
+// TestSearchSkiplagged_ToolErrorEnvelope covers the case where the RPC
+// envelope itself succeeds but the tool result has `isError: true` —
+// observed live when `departureDate` exceeds Skiplagged's ~11-month
+// search window. The error text should propagate verbatim so the
+// caller can act on it.
+func TestSearchSkiplagged_ToolErrorEnvelope(t *testing.T) {
+	body := `{"jsonrpc":"2.0","id":2,"result":{"isError":true,"content":[{"type":"text","text":"Failed to fetch from search: Invalid range for depart. Must be no greater than 2027-03-22."}]}}`
+	srv, closer := newSkiplaggedTestServer(t, "", body)
+	defer closer()
+	defer skiplaggedSetEndpointForTest(srv.URL)()
+
+	skiplaggedEnabled = true
+	ctx := context.Background()
+
+	_, err := SearchSkiplagged(ctx, "AMS", "HEL", "2030-01-15", SearchOptions{})
+	if err == nil {
+		t.Fatal("expected error from isError envelope, got nil")
+	}
+	if !strings.Contains(err.Error(), "tool error") {
+		t.Errorf("error %q should mention 'tool error'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "Invalid range") {
+		t.Errorf("error %q should propagate Skiplagged's own message", err.Error())
+	}
+}
+
 func TestSearchSkiplagged_InputValidation(t *testing.T) {
 	skiplaggedEnabled = true
 	cases := []struct {
@@ -298,8 +324,8 @@ func TestBuildSkiplaggedFlightSearchArgs_Mapping(t *testing.T) {
 	if args["adults"] != 2 {
 		t.Errorf("adults not propagated: %+v", args)
 	}
-	if args["maxStops"] != 0 {
-		t.Errorf("MaxStops=NonStop should map to 0, got %v", args["maxStops"])
+	if args["maxStops"] != "none" {
+		t.Errorf("MaxStops=NonStop should map to \"none\", got %v", args["maxStops"])
 	}
 	if args["fareClass"] != "business" {
 		t.Errorf("CabinClass=Business should map to fareClass=business, got %v", args["fareClass"])

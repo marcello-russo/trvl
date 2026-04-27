@@ -113,6 +113,13 @@ type skiplaggedToolResult struct {
 		Text string `json:"text"`
 	} `json:"content"`
 	StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
+	// IsError is the MCP-spec tool-error indicator. When true, the
+	// content[0].text contains a human-readable error message
+	// (e.g. "Failed to fetch: Invalid range for depart. Must be no
+	// greater than 2027-03-22") rather than a structured payload.
+	// We surface it as a Go error rather than letting downstream
+	// JSON parsing fail with a cryptic "invalid character" message.
+	IsError bool `json:"isError,omitempty"`
 }
 
 // ---- Skiplagged sk_flights_search response shape (verified against
@@ -222,7 +229,35 @@ func skiplaggedInitSession(ctx context.Context) (string, error) {
 // Skiplagged MCP endpoint using the Streamable HTTP transport.
 // Returns the structuredContent payload (preferred) or content[0].text
 // fallback as raw JSON.
+//
+// Retries: a single retry with 1s backoff on HTTP 502 (Cloudflare
+// origin overload). Empirically observed during validation as
+// recurring rather than one-off, so a transparent single retry
+// improves caller success rate without disguising persistent
+// outages — the second 502 surfaces as an error.
 func skiplaggedMCPCall(ctx context.Context, sessionID, toolName string, args map[string]any) (json.RawMessage, error) {
+	for attempt := 0; attempt < 2; attempt++ {
+		raw, err := skiplaggedMCPCallOnce(ctx, sessionID, toolName, args)
+		if err == nil {
+			return raw, nil
+		}
+		// Only retry the documented transient envelope; everything
+		// else (4xx, timeout, parse errors) bubbles immediately.
+		if attempt == 0 && strings.Contains(err.Error(), "bad gateway") {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(1 * time.Second):
+			}
+			continue
+		}
+		return nil, err
+	}
+	return nil, fmt.Errorf("skiplagged: exhausted retries")
+}
+
+// skiplaggedMCPCallOnce performs a single tools/call without retry.
+func skiplaggedMCPCallOnce(ctx context.Context, sessionID, toolName string, args map[string]any) (json.RawMessage, error) {
 	if err := skiplaggedLimiter.Wait(ctx); err != nil {
 		return nil, fmt.Errorf("skiplagged: rate limiter: %w", err)
 	}
@@ -332,6 +367,17 @@ func extractSkiplaggedContent(rpc skiplaggedRPCResponse) (json.RawMessage, error
 
 	var toolResult skiplaggedToolResult
 	if err := json.Unmarshal(rpc.Result, &toolResult); err == nil {
+		// Tool-level error envelope: surface the human-readable
+		// message rather than letting downstream JSON parsing fail
+		// with a cryptic "invalid character" wrap.
+		if toolResult.IsError {
+			for _, c := range toolResult.Content {
+				if c.Type == "text" && c.Text != "" {
+					return nil, fmt.Errorf("skiplagged: tool error: %s", c.Text)
+				}
+			}
+			return nil, fmt.Errorf("skiplagged: tool error (no message)")
+		}
 		if len(toolResult.StructuredContent) > 0 {
 			if len(toolResult.StructuredContent) > maxContentText {
 				return nil, fmt.Errorf("skiplagged: structuredContent too large (%d bytes)", len(toolResult.StructuredContent))
@@ -433,11 +479,11 @@ func buildSkiplaggedFlightSearchArgs(origin, destination, departureDate string, 
 	}
 	switch opts.MaxStops {
 	case models.NonStop:
-		args["maxStops"] = 0
+		args["maxStops"] = "none"
 	case models.OneStop:
-		args["maxStops"] = 1
+		args["maxStops"] = "one"
 	case models.TwoPlusStops:
-		args["maxStops"] = 2
+		args["maxStops"] = "many"
 	}
 	switch opts.CabinClass {
 	case models.PremiumEconomy:
