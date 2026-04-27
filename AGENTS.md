@@ -39,18 +39,19 @@ claude mcp add trvl --transport stdio -- trvl mcp
 
 ```bash
 mkdir -p ~/.claude/skills
-for s in trvl; do
+for s in trvl providers; do
   curl -fsSL "https://raw.githubusercontent.com/MikkoParkkola/trvl/main/.claude/skills/$s.md" -o "$HOME/.claude/skills/$s.md"
 done
 ```
 
-The skill at `.claude/skills/trvl.md` teaches you how to:
+The skills at `.claude/skills/trvl.md` and `.claude/skills/providers.md` teach you how to:
 - Ask the right questions (From? To? When? Flex? Budget?)
 - Run hack detectors automatically after every search
 - Use the unified optimizer (`optimize_booking`) for trip planning
 - Show the "Naive -> Optimized -> Saved" comparison after every plan
 - Use all-in pricing with FF benefits (bag fees included, status benefits subtracted)
 - Apply 37 travel hack detectors to find savings opportunities
+- Configure optional hotel/restaurant/ground providers only after verified source-code research and user consent
 
 ### Step 4: Verify
 
