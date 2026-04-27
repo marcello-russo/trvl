@@ -36,6 +36,7 @@ func flightsCmd() *cobra.Command {
 		explain        bool
 		award          bool
 		awardCookies   string
+		provider       string
 	)
 
 	cmd := &cobra.Command{
@@ -103,10 +104,20 @@ Examples:
 			}
 
 			var result *models.FlightSearchResult
-			if len(origins) > 1 || len(destinations) > 1 {
-				result, err = flights.SearchMultiAirport(cmd.Context(), origins, destinations, date, opts)
-			} else {
-				result, err = flights.SearchFlights(cmd.Context(), origins[0], destinations[0], date, opts)
+			switch strings.ToLower(strings.TrimSpace(provider)) {
+			case "skiplagged":
+				if len(origins) != 1 || len(destinations) != 1 {
+					return fmt.Errorf("--provider skiplagged supports exactly one origin and one destination")
+				}
+				result, err = flights.SearchSkiplagged(cmd.Context(), origins[0], destinations[0], date, opts)
+			case "", "default", "google", "google_flights", "kiwi":
+				if len(origins) > 1 || len(destinations) > 1 {
+					result, err = flights.SearchMultiAirport(cmd.Context(), origins, destinations, date, opts)
+				} else {
+					result, err = flights.SearchFlights(cmd.Context(), origins[0], destinations[0], date, opts)
+				}
+			default:
+				return fmt.Errorf("unsupported --provider %q (valid: skiplagged, or empty for default Google+Kiwi merge)", provider)
 			}
 			if err != nil {
 				return err
@@ -165,6 +176,7 @@ Examples:
 	cmd.Flags().BoolVar(&explain, "explain", false, "Show per-factor profile match breakdown for each result")
 	cmd.Flags().BoolVar(&award, "award", false, "Search Flying Blue award availability instead of cash fares")
 	cmd.Flags().StringVar(&awardCookies, "award-cookies", "", "KLM/Flying Blue Cookie header for --award (or set AFKL_KLM_COOKIES)")
+	cmd.Flags().StringVar(&provider, "provider", "", "Flight provider: empty = default (Google Flights + Kiwi merge), skiplagged = Skiplagged MCP only (hidden-city + virtual-interlining defaults)")
 
 	cmd.ValidArgsFunction = airportCompletion
 

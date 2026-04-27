@@ -617,6 +617,25 @@ func TestHandleSearchFlights_PastDate(t *testing.T) {
 	}
 }
 
+func TestHandleSearchFlights_RejectsBadProvider(t *testing.T) {
+	t.Parallel()
+	// Provider validation runs after schema validation; supply a future
+	// date so the dispatch layer is reached and the unsupported-provider
+	// error path is exercised.
+	_, _, err := handleSearchFlights(context.Background(), map[string]any{
+		"origin":         "HEL",
+		"destination":    "NRT",
+		"departure_date": "2099-06-15",
+		"provider":       "not_a_real_provider",
+	}, nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for unsupported provider")
+	}
+	if got := err.Error(); !strings.Contains(got, "unsupported provider") {
+		t.Errorf("error %q should mention 'unsupported provider'", got)
+	}
+}
+
 func TestHandleSearchFlights_InvalidReturnDate(t *testing.T) {
 	t.Parallel()
 	_, _, err := handleSearchFlights(context.Background(), map[string]any{

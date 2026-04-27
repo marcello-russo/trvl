@@ -159,6 +159,7 @@ func searchFlightsTool() ToolDef {
 				"no_early_connection": {Type: "boolean", Description: "Drop flights whose post-overnight leg departs before preferences.early_connection_floor (default 10:00)."},
 				"lounge_required":     {Type: "boolean", Description: "Drop flights where a layover airport lacks lounge coverage from user's cards."},
 				"first_result":        {Type: "boolean", Description: "Return only the first result with a valid price after sorting. Combine with sort_by to get e.g. the shortest priced flight (duration) or cheapest. Default: false."},
+				"provider":            {Type: "string", Description: "Flight provider: empty (default) = Google Flights + Kiwi merge, 'skiplagged' = Skiplagged MCP only (hidden-city + virtual-interlining defaults). Opt-in second-source for hidden-city cross-validation."},
 			},
 			Required: []string{"origin", "destination", "departure_date"},
 		},
@@ -273,7 +274,7 @@ func handleSearchFlights(ctx context.Context, args map[string]any, elicit Elicit
 		opts.MaxPrice = hints.MaxPrice
 	}
 
-	result, err := flights.SearchFlights(ctx, origin, dest, date, opts)
+	result, err := dispatchFlightSearch(ctx, args, origin, dest, date, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -476,6 +477,26 @@ func handleSearchFlights(ctx context.Context, args map[string]any, elicit Elicit
 	}
 
 	return content, resp, nil
+}
+
+// dispatchFlightSearch routes a search_flights call to the right
+// provider based on the optional `provider` argument. Empty (or one
+// of the legacy aliases) goes through the default Google Flights +
+// Kiwi merge in `flights.SearchFlights`. `provider="skiplagged"`
+// dispatches to the Skiplagged MCP-backed provider, which is opt-in
+// only and never participates in the default-on path. New providers
+// must explicitly register here so the dispatcher remains the single
+// switchboard.
+func dispatchFlightSearch(ctx context.Context, args map[string]any, origin, dest, date string, opts flights.SearchOptions) (*models.FlightSearchResult, error) {
+	provider := strings.ToLower(strings.TrimSpace(argString(args, "provider")))
+	switch provider {
+	case "skiplagged":
+		return flights.SearchSkiplagged(ctx, origin, dest, date, opts)
+	case "", "default", "google", "google_flights", "kiwi":
+		return flights.SearchFlights(ctx, origin, dest, date, opts)
+	default:
+		return nil, fmt.Errorf("unsupported provider %q (valid: skiplagged, or empty for default Google+Kiwi merge)", provider)
+	}
 }
 
 func handleSearchDates(ctx context.Context, args map[string]any, elicit ElicitFunc, sampling SamplingFunc, progress ProgressFunc) ([]ContentBlock, interface{}, error) {
