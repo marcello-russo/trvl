@@ -287,6 +287,30 @@ That's it. Your AI assistant now has 61 travel tools available. Just ask natural
 | **day_use** | Day-use hotel for long layovers instead of a full night |
 | **error_fare** | Flag abnormally cheap fares (potential error fares or flash sales) |
 
+## Flight Providers
+
+trvl ships with **Google Flights** (hand-rolled protobuf) on the default code path, augmented by **Kiwi** (virtual-interlining merge) for compatible one-way searches and **AFKLM Flying Blue** (Offers API v3, opt-in) for award-availability scans. Two additional providers are available as opt-ins for specific use cases:
+
+| Provider | Protocol | Strength | Activation | Auth |
+|----------|----------|----------|------------|------|
+| **Google Flights** | hand-rolled protobuf | Broadest coverage, server-side filters | default | None |
+| **Kiwi** | REST | Virtual-interlining + self-connect candidates | default (one-way merge) | None |
+| **AFKLM Flying Blue** | Offers API v3 + Award API | Cash + miles cabin search on KL/AF metal | `--award` (CLI) / built-in opt-in | KLM/Flying Blue session cookie |
+| **Skiplagged** | Streamable HTTP MCP (`@skiplagged/mcp` v0.0.4, protocol 2025-06-18) | Genre-defining hidden-city + virtual-interlining defaults | `--provider skiplagged` (CLI) / `provider: "skiplagged"` (MCP arg) | None |
+
+Skiplagged is opt-in only and never participates in the default search merge — it's a second-source for hidden-city cross-validation rather than a replacement for the default Google Flights + Kiwi merge.
+
+```bash
+# Default (Google Flights + Kiwi merge):
+trvl flights HEL BCN 2026-07-01
+
+# Skiplagged hidden-city / virtual-interlining only:
+trvl flights HEL BCN 2026-07-01 --provider skiplagged
+
+# AFKLM Flying Blue award availability:
+trvl flights AMS NRT 2026-09-15 --award
+```
+
 ## Ground Transport Providers
 
 trvl searches 20 ground transport providers in parallel, covering most of Europe. Airport transfers add taxi estimates on top of that, so trvl exposes 21 transport providers overall:
@@ -321,6 +345,7 @@ Two providers (NS, Digitransit/VR) use public API keys that are embedded in the 
 | Bus/train/ferry search | ✅ (20 providers: FlixBus, RegioJet, Eurostar, DB, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Snälltåget, Tallink, Viking Line, Eckerö Line, Finnlines, Stena Line, DFDS, Ferryhopper) | ❌ | ❌ | ❌ | ❌ |
 | Price tracking | ✅ (watches with alerts) | ❌ | ❌ | ❌ | ❌ |
 | Hotel search | ✅ (5 providers: Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld) | ❌ | ❌ | ❌ | ❌ |
+| Flight providers | ✅ (Google Flights default + Kiwi virtual-interlining merge; AFKLM Flying Blue award scanner; Skiplagged hidden-city via opt-in `--provider skiplagged`) | ✅ | ✅ | ✅ | ✅ |
 | Hotel reviews | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Trip cost calculator | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Explore destinations | ✅ | ❌ | ✅ (web only) | ✅ (web) | ✅ |
