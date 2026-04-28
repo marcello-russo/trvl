@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-28
+
+> Note on versioning: this release contains a breaking change (`ValueScore` → `ProfileMatch`, see below) but ships as `1.1.0` rather than `2.0.0`. The 1.0 surface stabilised only on 2026-04-20 (eight days before this release), and `value_score` had been a public field for less than a week of real-world use, so we treat 1.0.x as a pre-stabilisation window rather than a strict-semver public API. Subsequent breaking changes will go through proper deprecation cycles or trigger a `2.0.0` bump.
+
 ### Added
 - **Skiplagged flight provider** — open MCP server at `mcp.skiplagged.com/mcp` (no API key, no cookies) wired as the third default flight provider alongside Google Flights and Kiwi. `trvl flights AMS HEL 2026-04-29` now returns merged results from all three; `--provider skiplagged` selects it as the sole source. Surfaces hidden-city / virtual-interlining options without manual flag flipping. Eligibility helper short-circuits options the upstream MCP cannot honour (airline / alliance filters, baggage requirements, exclude-basic, less-emissions); client-guard pattern keeps test-injected clients from auto-dispatching Skiplagged (mirrors Kiwi guard). (#62, #63, #64)
 - **OpenTelemetry tracing** — opt-in MCP tracing via `TRVL_OTEL_ENDPOINT`, with per-tool spans and queue/inflight attributes (MIK-3089)
