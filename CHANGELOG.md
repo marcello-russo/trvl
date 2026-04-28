@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`flights` CLI input validation** — `trvl flights` now validates origin and destination IATA codes (3 uppercase letters, comma-separated multi-airport supported) before dispatching to any provider, matching the pattern already used in `when/grid/multicity/discover/weekend/explore/setup`. Eliminates the ubuntu CI flake where `TestFlightsCmd_InvalidOriginIATA` could pass or fail depending on which provider happened to error first; negative-path tests now return deterministic errors with no network round-trip. (#65)
+
 ## [1.1.0] - 2026-04-28
 
 > Note on versioning: this release contains a breaking change (`ValueScore` → `ProfileMatch`, see below) but ships as `1.1.0` rather than `2.0.0`. The 1.0 surface stabilised only on 2026-04-20 (eight days before this release), and `value_score` had been a public field for less than a week of real-world use, so we treat 1.0.x as a pre-stabilisation window rather than a strict-semver public API. Subsequent breaking changes will go through proper deprecation cycles or trigger a `2.0.0` bump.
