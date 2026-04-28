@@ -43,6 +43,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Watch scheduler shutdown** — calling `Stop()` before `Start()` no longer deadlocks; lifecycle state is synchronized and remains idempotent
 - **Race regression coverage** — new and expanded tests lock in caller-private result cloning and scheduler lifecycle behavior across the touched packages
 
+## [1.0.7] - 2026-04-24
+
+> Documented retroactively on 2026-04-28 — this release shipped before the changelog discipline caught up with the four-day v1.0.4 → v1.0.7 patch sprint.
+
+### Added
+- **AFKLM Flying Blue cash provider** — opt-in via `--provider afklm` (CLI) / `provider: "afklm"` (MCP arg). Air France-KLM Offers API v3 for cash fares on KL/AF metal, with rail-leg origin codes corrected (only ZYR resolves to a `RAILWAY_STATION`) and top-level connection mapping that populates `route`, `carrier`, `times`, and `duration`
+- **Hunt orchestrator** — shared CLI/MCP orchestrator with two new MCP tools, restoring CLI ↔ MCP feature parity (#48)
+- **Search flights by city** — when origin or destination is a city name (rather than an IATA code), the search now expands to every member airport automatically so deals out of EIN/ANR/TKU/TLL are not missed (#42, **@Alorse**)
+- **`--first` flag and `first_result` MCP parameter** — return only the first result with a valid price after sorting; cuts payload size for price-calendar and quick-estimate workflows (#43 → #49, **@Alorse**)
+- **`Personal` field and `ListPublic()` on the provider registry** — lets the CLI/MCP enumerate only providers safe to expose without personal credentials
+- **Tag-triggered release workflow + adhoc codesign identifier** (#50) — first cut of the automated release pipeline that all subsequent versions ride on
+
+### Fixed
+- **Windows CI parity** — `-short` is now applied on the Windows job, platform-specific tests are gated, content-block assertions tolerate network variability, and the remaining live-HTTP tests are skipped/guarded so the windows-latest matrix is no longer permanently red (#41, #45, #46)
+
+## [1.0.6] - 2026-04-20
+
+### Added
+- **55th MCP tool** — `export_ics` produces an ICS calendar feed for booked trip legs
+
+### Fixed
+- **Tool-count consistency** — `plugin.json`, `demo.tape`, and README now all report 55 tools (the count was previously drifting between surfaces)
+
+## [1.0.5] - 2026-04-20
+
+### Added
+- **Background price-watch scheduler** — long-lived watcher that re-runs `check_watches` on a configurable cadence and pushes drops over webhooks
+- **npm wrapper** — `npm install -g @mikkoparkkola/trvl` distribution path so non-Go users can install without `go install`
+- **Webhook price alerts** — watchers can now POST drop events to a configurable URL in addition to writing to `~/.trvl/watches.jsonl`
+
+### Changed
+- **Cache safety** — broader response-cache audit; bumped MCP coverage tests to lock in the new behavior
+
+## [1.0.4] - 2026-04-20
+
+### Changed
+- **`ParseDate` deduplication** — collapsed 75 ad-hoc date-parsing call sites into a single helper, hoisted regexes to package-level `var`s, and reduced per-call allocations across the flight, hotel, ground, and trip-window paths. No external behavior change; user-visible effect is lower latency and lower allocation pressure on hot paths.
+
 ## [1.0.3] - 2026-04-20
 
 ### Added
