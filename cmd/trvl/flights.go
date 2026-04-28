@@ -67,6 +67,27 @@ Examples:
 			destinations := flights.ParseAirports(args[1])
 			date := args[2]
 
+			// Validate IATA codes up-front so invalid input fails fast with a
+			// deterministic error, not via downstream provider HTTP calls. This
+			// matches the pattern in when/grid/multicity/discover/weekend/explore
+			// and keeps the default test suite network-free for negative paths.
+			if len(origins) == 0 {
+				return fmt.Errorf("invalid origin: %q: at least one IATA code required", originArg)
+			}
+			for _, code := range origins {
+				if err := models.ValidateIATA(code); err != nil {
+					return fmt.Errorf("invalid origin: %w", err)
+				}
+			}
+			if len(destinations) == 0 {
+				return fmt.Errorf("invalid destination: %q: at least one IATA code required", args[1])
+			}
+			for _, code := range destinations {
+				if err := models.ValidateIATA(code); err != nil {
+					return fmt.Errorf("invalid destination: %w", err)
+				}
+			}
+
 			if award {
 				if len(origins) != 1 || len(destinations) != 1 {
 					return fmt.Errorf("--award supports exactly one origin and one destination")
