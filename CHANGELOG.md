@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Skiplagged flight provider** — open MCP server at `mcp.skiplagged.com/mcp` (no API key, no cookies) wired as the third default flight provider alongside Google Flights and Kiwi. `trvl flights AMS HEL 2026-04-29` now returns merged results from all three; `--provider skiplagged` selects it as the sole source. Surfaces hidden-city / virtual-interlining options without manual flag flipping. Eligibility helper short-circuits options the upstream MCP cannot honour (airline / alliance filters, baggage requirements, exclude-basic, less-emissions); client-guard pattern keeps test-injected clients from auto-dispatching Skiplagged (mirrors Kiwi guard). (#62, #63, #64)
 - **OpenTelemetry tracing** — opt-in MCP tracing via `TRVL_OTEL_ENDPOINT`, with per-tool spans and queue/inflight attributes (MIK-3089)
 - `search_awards` MCP tool: cross-program award scanner with transfer-partner sweet-spot ranking (MIK-3081)
 - `trvl awards` CLI command: find cheapest redemption path across FB/Avios/Aeroplan/Virgin/Asia-Miles (MIK-3081)
