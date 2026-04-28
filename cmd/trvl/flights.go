@@ -117,7 +117,7 @@ Examples:
 					result, err = flights.SearchFlights(cmd.Context(), origins[0], destinations[0], date, opts)
 				}
 			default:
-				return fmt.Errorf("unsupported --provider %q (valid: skiplagged, or empty for default Google+Kiwi merge)", provider)
+				return fmt.Errorf("unsupported --provider %q (valid: skiplagged, or empty for default Google+Kiwi+Skiplagged merge)", provider)
 			}
 			if err != nil {
 				return err
@@ -176,7 +176,7 @@ Examples:
 	cmd.Flags().BoolVar(&explain, "explain", false, "Show per-factor profile match breakdown for each result")
 	cmd.Flags().BoolVar(&award, "award", false, "Search Flying Blue award availability instead of cash fares")
 	cmd.Flags().StringVar(&awardCookies, "award-cookies", "", "KLM/Flying Blue Cookie header for --award (or set AFKL_KLM_COOKIES)")
-	cmd.Flags().StringVar(&provider, "provider", "", "Flight provider: empty = default (Google Flights + Kiwi merge), skiplagged = Skiplagged MCP only (hidden-city + virtual-interlining defaults)")
+	cmd.Flags().StringVar(&provider, "provider", "", "Flight provider: empty = default (Google Flights + Kiwi + Skiplagged merge), skiplagged = Skiplagged MCP only (hidden-city + virtual-interlining defaults)")
 
 	cmd.ValidArgsFunction = airportCompletion
 

@@ -286,6 +286,7 @@ Optional parameters:
 - `max_duration`: integer — maximum total duration in minutes — server-side
 - `exclude_basic`: true/false — exclude basic economy fares — server-side
 - `airlines`: comma-separated IATA codes to restrict results (e.g. "AY,LH")
+- `provider`: empty (default) merges Google Flights + Kiwi + Skiplagged into one sorted list; `"skiplagged"` queries Skiplagged solo for hidden-city / virtual-interlining cross-validation
 
 ### search_dates — Find the cheapest day to fly
 ```json

@@ -296,12 +296,12 @@ trvl ships with **Google Flights** (hand-rolled protobuf) on the default code pa
 | **Google Flights** | hand-rolled protobuf | Broadest coverage, server-side filters | default | None |
 | **Kiwi** | REST | Virtual-interlining + self-connect candidates | default (one-way merge) | None |
 | **AFKLM Flying Blue** | Offers API v3 + Award API | Cash + miles cabin search on KL/AF metal | `--award` (CLI) / built-in opt-in | KLM/Flying Blue session cookie |
-| **Skiplagged** | Streamable HTTP MCP (`@skiplagged/mcp` v0.0.4, protocol 2025-06-18) | Genre-defining hidden-city + virtual-interlining defaults | `--provider skiplagged` (CLI) / `provider: "skiplagged"` (MCP arg) | None |
+| **Skiplagged** | Streamable HTTP MCP (`@skiplagged/mcp` v0.0.4, protocol 2025-06-18) | Genre-defining hidden-city + virtual-interlining defaults | default (one-way merge) / `--provider skiplagged` for solo | None |
 
-Skiplagged is opt-in only and never participates in the default search merge — it's a second-source for hidden-city cross-validation rather than a replacement for the default Google Flights + Kiwi merge.
+The default flight search merges results from Google Flights, Kiwi, and Skiplagged into a single sorted list, so plain `trvl flights HEL BCN 2026-07-01` already includes hidden-city / virtual-interlining options. Use `--provider skiplagged` to query Skiplagged on its own when you want to cross-validate or see only the hidden-city candidates.
 
 ```bash
-# Default (Google Flights + Kiwi merge):
+# Default (Google Flights + Kiwi + Skiplagged merge):
 trvl flights HEL BCN 2026-07-01
 
 # Skiplagged hidden-city / virtual-interlining only:
