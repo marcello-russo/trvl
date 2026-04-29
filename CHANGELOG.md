@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Live-HTTP tests properly gated** — `TestFlightsCmd_HomeOriginResolves`, `TestWeekendCmd_ValidIATANoNetworkV21`, and `TestWatchCheckCmd_EmptyStore_V29` were guarded only by `testing.Short()`, so they ran on Ubuntu CI (which does not pass `-short`) and could hang the cmd/trvl package past 120s when fanning out to live providers. Switched all three to `testutil.RequireLiveIntegration(t)` — the project's canonical opt-in via `TRVL_TEST_LIVE_INTEGRATIONS=1` — matching the pattern used in `internal/hacks/coverage_target_test.go`. (#66)
 - **`flights` CLI input validation** — `trvl flights` now validates origin and destination IATA codes (3 uppercase letters, comma-separated multi-airport supported) before dispatching to any provider, matching the pattern already used in `when/grid/multicity/discover/weekend/explore/setup`. Eliminates the ubuntu CI flake where `TestFlightsCmd_InvalidOriginIATA` could pass or fail depending on which provider happened to error first; negative-path tests now return deterministic errors with no network round-trip. (#65)
 
 ## [1.1.0] - 2026-04-28
