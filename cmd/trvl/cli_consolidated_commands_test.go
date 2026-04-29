@@ -15,6 +15,7 @@ import (
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/nlsearch"
 	"github.com/MikkoParkkola/trvl/internal/providers"
+	"github.com/MikkoParkkola/trvl/internal/testutil"
 	"github.com/spf13/cobra"
 )
 
@@ -1460,9 +1461,7 @@ func TestShareCmd_NoArgsNoLastV21(t *testing.T) {
 }
 
 func TestWeekendCmd_ValidIATANoNetworkV21(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping live HTTP test in short mode")
-	}
+	testutil.RequireLiveIntegration(t)
 	tmp := t.TempDir()
 	setTestHome(t, tmp)
 	cmd := weekendCmd()
@@ -2918,9 +2917,7 @@ func TestSuggestCmd_InvalidDestIATAV7(t *testing.T) {
 }
 
 func TestFlightsCmd_HomeOriginResolves(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping live HTTP test in short mode")
-	}
+	testutil.RequireLiveIntegration(t)
 	cmd := flightsCmd()
 	cmd.SetArgs([]string{"home", "BCN", "2026-07-01"})
 	_ = cmd.Execute()
