@@ -309,6 +309,63 @@ This pattern is the **hidden_city / throwaway** cousin in `detect_travel_hacks` 
 
 ---
 
+## KLM AIR&RAIL — checked-bag-safe throwaway via Antwerp/Brussels/Rotterdam
+
+KLM/AF sell connecting tickets where the AMS↔[Belgian/Dutch rail station] leg is operated by **train (Eurostar/NS)** instead of a flight. Rail destinations on klm.com/airfrance.com:
+
+| KLM rail dest | Rail station | Typical use |
+|---|---|---|
+| **ZAP** | Antwerp Centraal | KLM Air&Rail flagship combo |
+| **QYG** | Antwerp Berchem | Alternative Antwerp station |
+| **ZYR** | Brussels-Midi | Eurostar to Belgium |
+| **QYU** | Brussels Airport rail | rail-side Brussels Airport |
+| **ZWS** | Rotterdam Centraal | NS Intercity Direct from AMS |
+| **QYM** | The Hague HS | NS local from AMS |
+
+**The mechanics that make this checked-bag-safe:**
+
+1. KLM tags the bag to AMS Schiphol (NOT to the final rail station — Eurostar/NS don't accept through-checked baggage from KLM)
+2. Passenger **MUST collect the bag at AMS Schiphol arrivals** before transferring to the rail leg
+3. The included rail ticket is a separate Thalys/Eurostar/NS voucher — the passenger walks across Schiphol Plaza to the train platform
+4. **At this handover point the passenger has full custody of the bag** — they can take any train (or no train at all)
+
+**Why this enables a clean throwaway with checked luggage:**
+
+- Book PRG → ZAP (Antwerp Centraal) on KLM Air&Rail
+- Fly PRG → AMS as normal · checked bag flies AMS-tagged
+- Collect bag at AMS Schiphol arrivals (mandatory regardless of intent)
+- **Decision point with bag in hand**: take the included Eurostar to ZAP, OR walk out the Schiphol Plaza door, OR take a different train (e.g. AMS Centraal). No airline mishandling risk because the bag was always going to Schiphol.
+
+**Why it can be cheaper than booking PRG→AMS direct on KLM:**
+
+- KLM prices PRG→AMS as a **destination** (premium, hub spoke they own)
+- KLM prices PRG→ZAP as a **connection** (Antwerp is "beyond AMS"); Air&Rail tariffs often undercut direct AMS pricing
+- The included rail ticket is a sunk cost in the fare, not separately added
+
+**Booking notes:**
+
+- Search at **klm.com** or **airfrance.com** with the **train icon** enabled in the destination field — typing "Antwerp" should surface "Antwerp Centraal Train Station" alongside "Antwerp ANR Airport"
+- AFKLM Offers v3 API exposes these as connection options when the rail station code is used as destination
+- trvl's `afklm` provider (added in v1.0.7) covers this when wired locally; otherwise fall back to klm.com manual booking
+- **Skiplagged / Google Flights do NOT index Air&Rail** — they treat ZAP/ZYR/ZWS as airport codes, return zero or wrong results
+
+**Mikko-specific routing matrix** (Air&Rail-eligible KLM city pairs):
+
+| Origin | Air&Rail destination | Mechanics |
+|---|---|---|
+| PRG / KRK / WAW / VIE / BUD | ZAP, ZYR, ZWS | KLM via AMS, then included Eurostar/NS to Belgian/Dutch rail station |
+| HEL | ZAP, ZYR, ZWS | KL HEL→AMS → rail; useful for AMS-flat positioning when AMS pricing is high |
+
+**Risk reminders unique to Air&Rail throwaway:**
+
+- Verify KLM still tags bag to AMS (not to the rail station) at booking — confirm at the kiosk before drop
+- Eurostar/NS rail tickets in Air&Rail bundles are typically refundable/changeable like flight tickets
+- Don't miss the rail-leg cutoff time stated on the boarding card if you intend to actually use it
+
+This is the **only** throwaway hack pattern that remains safe when the user has checked luggage, because the bag-collection happens at AMS by design.
+
+---
+
 ## DISCOUNT STRATEGY LIBRARY — strictly trvl-actionable
 
 Every strategy below maps to a concrete trvl tool call or parameter. **Strategies that depend on out-of-band action (status matches, mistake-fare Twitter monitors, bid-for-upgrade portals, gate upgrades, VPN POS browsing) are deliberately excluded** — surface them in commentary if relevant, but trvl can't search-or-execute them.
