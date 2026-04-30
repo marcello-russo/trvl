@@ -253,6 +253,202 @@ Profile fields that drive ranking & hack eligibility:
 
 ---
 
+## HUB-CARRIER ROUND-TRIP THROWAWAY — high-leverage hack pattern
+
+When a user wants to end at a hub-carrier's home airport (AMS for KLM/AF, CDG for AF, FRA/MUC for LH, IST for TK, MAD for IB, LHR for BA, DOH for QR, …) but their billing/loyalty home is elsewhere:
+
+**The pattern**: book a **round-trip from origin city to a third city via the hub**, use the outbound + the inbound-to-hub leg, **skip the final hub→origin leg**.
+
+**Why it saves money** — three compounding factors:
+1. Round-trip pricing is structurally **30-50% cheaper** than two one-ways on most legacy carriers (revenue management punishes one-way bookers)
+2. Hub carriers **route most of their network through their hub anyway**, so the throwaway leg is naturally the last segment of the existing routing — no contortion needed
+3. Hub carriers price **direct city-pair → hub** (e.g. PRG→AMS) at a premium because they own that monopoly spoke; the "city → hub → distant origin" connection is sold as inventory at a discount
+
+**Worked example — KLM HEL↔PRG (verified 2026-04-30):**
+- Two one-ways: HEL→PRG (Finnair direct ~€200) + PRG→AMS (KLM direct ~€293) = **€493**
+- Round-trip throwaway: HEL↔PRG via AMS (KL 1254 et al ~€413), skip AMS→HEL on return = **€413, saves €80**
+- The throwaway flyer ends at AMS (their actual destination) on a KLM seat with hub-carrier lounge + free bag + miles
+
+### Multi-hub carriers — pass ALL hubs to `layover_at`
+
+Many carriers operate multiple hubs. `layover_at` accepts a list — pass every hub of the chosen carrier-group to surface throwaway candidates through any of them in one search.
+
+| Carrier / group | Hubs to pass to `layover_at` | Alliance |
+|---|---|---|
+| KLM / Air France | `["AMS", "CDG", "ORY"]` | SkyTeam |
+| SAS | `["CPH", "ARN", "OSL"]` | SkyTeam |
+| Lufthansa Group (LH / OS / LX / SN / EW) | `["FRA", "MUC", "VIE", "ZRH", "BRU", "DUS"]` | Star Alliance |
+| British Airways | `["LHR", "LGW", "LCY"]` | oneworld |
+| Iberia | `["MAD", "BCN"]` | oneworld |
+| Finnair | `["HEL"]` | oneworld |
+| LOT Polish | `["WAW", "KRK"]` | Star Alliance |
+| Turkish Airlines | `["IST"]` (SAW = Pegasus, not TK) | Star Alliance |
+| Aegean | `["ATH", "SKG"]` | Star Alliance |
+| ITA Airways | `["FCO", "MXP"]` | SkyTeam |
+| TAP Portugal | `["LIS", "OPO"]` | Star Alliance |
+| Emirates | `["DXB"]` | non-aligned |
+| Etihad | `["AUH"]` | non-aligned |
+| Qatar | `["DOH"]` | oneworld |
+
+Combine `alliances=<X>` + `layover_at=<all hubs of X>` to lock the route through the alliance's hub set.
+
+**When to recommend:**
+- User has frequent-flyer status on the hub carrier (lounge + bag + miles benefits compound the savings)
+- User's final destination is the hub city (or near it on cheap ground transit)
+- User is carry-on only — **mandatory** because checked bags fly to the booked endpoint
+- Booking is one-way-eligible (round-trip with a skipped final leg only; never skip a middle leg, never on a multi-passenger PNR if companions need the skipped leg)
+
+**Risk reminders the agent must surface every time:**
+- Carry-on only (bag check = bag flies to final destination without you)
+- Last leg only — never middle segments
+- Don't add the skipped segment to your loyalty account in advance
+- One-way-only as a defensive booking shape: the airline cannot retaliate by cancelling forward segments because there are none
+- Use the discount tier intentionally (Light/Basic when checked bag isn't needed; Standard when status grants free bag anyway)
+
+This pattern is the **hidden_city / throwaway** cousin in `detect_travel_hacks` but applied at the **trip shape layer** rather than the segment-finding layer.
+
+---
+
+## DISCOUNT STRATEGY LIBRARY — strictly trvl-actionable
+
+Every strategy below maps to a concrete trvl tool call or parameter. **Strategies that depend on out-of-band action (status matches, mistake-fare Twitter monitors, bid-for-upgrade portals, gate upgrades, VPN POS browsing) are deliberately excluded** — surface them in commentary if relevant, but trvl can't search-or-execute them.
+
+### A · Booking-shape (search_flights / optimize_booking parameters)
+
+| Strategy | trvl call | Note |
+|---|---|---|
+| RT vs 2× one-way comparison | run `search_flights` once with `return_date` and once without; compare totals | Default discipline before any recommendation |
+| Hub-carrier RT throwaway | `search_flights` with `return_date` + `layover_at=<hub list>` + `alliances` | Above-section pattern; carry-on only |
+| Throwaway return (skip OW return) | `detect_travel_hacks` flags `throwaway` when OW > RT; book RT, fly only outbound | Last leg only |
+| Hidden-city (deplane at layover) | `search_hidden_city` (gated on `risk_posture.hidden_city.acceptable`) — supply pre-fetched offers | Carry-on; ticket auto-cancels rest of itinerary |
+| Open-jaw (different return city) | run two `search_flights` (out + in) with different airports; compare to RT | When ground transit between A and B is cheap |
+| Positioning origin | `optimize_booking` includes `alternative_origins` automatically | Honors `flex_days`; buffer ≥3h between separate tickets |
+| Departure-tax avoidance | `optimize_booking` strategy `departure_tax` (NL €26 / DE €15 / GB £14) routes via tax-free nearby origin | Activated only when tax savings > ground transfer |
+| Status airline preference | `alliances` param + `lounge_required=true` | Within ~15% of cheapest, status carrier is usually net-positive |
+| Discount fare bucket | `exclude_basic=false` to keep Basic; `require_checked_bag=true` only when needed | Light + Gold status often beats Standard cash |
+| Lounge-only layovers | `lounge_required=true` (uses profile `lounge_cards`) | Drops layovers without lounge coverage |
+| Long-layover comfort | `min_layover_minutes=120` | Avoid <90min self-transfer risk on separate tickets |
+| No-early-connection | `no_early_connection=true` + `early_connection_floor` from prefs | Personal-floor enforcement |
+
+### B · Date strategies
+
+| Strategy | trvl call |
+|---|---|
+| Cheapest single date in range | `search_dates start_date end_date` |
+| Cheapest pair for fixed trip length | `optimize_trip_dates` (one API call, full grid) |
+| 3 cheapest near a target + weekday/weekend split | `suggest_dates target_date flex_days` |
+| Calendar-aware optimal window | `find_trip_window` with `busy_intervals` from user calendar |
+| Tue/Wed bias check | inspected directly from `search_dates` output |
+| Advance-purchase bracket warning | `detect_travel_hacks: advance_purchase` (flags <14d windows) |
+
+### C · Multi-modal & ground
+
+| Strategy | trvl call |
+|---|---|
+| Pareto-optimal multi-modal itinerary | `search_route` (flights + trains + buses + ferries) |
+| Bus / train / ferry direct | `search_ground` (FlixBus, RegioJet, Eurostar/Snap, DB, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, Tallink, Viking, Eckerö, Finnlines, Stena, DFDS, Ferryhopper, European Sleeper, Snälltåget) |
+| Skip-flight via train (<4h corridor) | `detect_travel_hacks: multimodal_skip_flight` |
+| Multimodal positioning | `detect_travel_hacks: multimodal_positioning` |
+| Multimodal open-jaw on ground leg | `detect_travel_hacks: multimodal_open_jaw_ground` |
+| Multimodal return split | `detect_travel_hacks: multimodal_return_split` |
+| Rail+fly arbitrage (KLM ANR/ZYR/RTM origin trick) | `detect_travel_hacks: rail_fly_arbitrage` + `optimize_booking` |
+| Eurostar return-fare premium | `detect_travel_hacks: eurostar_return` |
+| Cross-border rail (book on cheaper operator) | `detect_travel_hacks: cross_border_rail` |
+| Rail-competition discount (MAD↔BCN, IT, etc) | `detect_travel_hacks: rail_competition` |
+| Regional pass amortization | `detect_travel_hacks: regional_pass` |
+| Overnight ferry as hotel | `detect_travel_hacks: ferry_cabin` |
+| Ferry positioning | `detect_travel_hacks: ferry_positioning` |
+| Throwaway ground leg | `detect_travel_hacks: throwaway_ground` |
+
+### D · Trip-structure detectors (auto-fire from `detect_travel_hacks`)
+
+| Strategy | Detector |
+|---|---|
+| Throwaway return | `throwaway` |
+| Hidden city | `hidden_city` |
+| Positioning | `positioning` |
+| Split tickets (different airline each direction) | `split` |
+| Stopover programmes (Iceland/Istanbul/Doha multi-day) | `stopover` |
+| Date flex | `date_flex` |
+| Open-jaw | `open_jaw` |
+| Group split (3+ pax) | `group_split` |
+| Self-transfer (LCC virtual interline) | `self_transfer` |
+| Mileage run viability | `mileage_run` |
+| Low-cost-carrier all-in vs legacy | `low_cost_carrier` |
+| Currency arbitrage (POS via `currency` param) | `currency_arbitrage` |
+| Tuesday-booking myth check | `tuesday_booking` |
+| Fare-breakpoint hop | `fare_breakpoint` |
+| Destination-airport substitution (BCN→GRO, LON→STN, AMS→EIN) | `destination_airport` |
+| Back-to-back nested tickets | `back_to_back` |
+| Home-stopover (own flat as overnight) | `home_stopover` |
+| Flight-combo (RT vs 2× OW + nested returns) | `flight_combo` |
+| Fuel-surcharge avoidance | `fuel_surcharge` |
+| Day-use hotel for long layover | `day_use` |
+| Calendar-conflict gating | `calendar_conflict` |
+
+### E · Anomaly & deal feeds
+
+| Strategy | trvl call |
+|---|---|
+| Error-fare flag | `detect_travel_hacks: error_fare` (haversine route-distance floor < 50%) |
+| Flash sale | `detect_travel_hacks: flash_sale` |
+| Free RSS deal feeds | `search_deals` (Secret Flying, Fly4Free, Holiday Pirates, TPG) — filter by `origins` |
+| Price watch with target | `watch_price` + `check_watches` (sparkline history, webhook on drop) |
+| Opportunity scanner | `watch_opportunities` + `list_opportunity_watches` (favourite-destinations rolling window) |
+
+### F · Carry-on / bag math
+
+| Strategy | trvl call |
+|---|---|
+| Per-airline carry-on + checked rules | `get_baggage_rules airline_code` |
+| Recalculate price including bags | `checked_bags=N` (server-side) |
+| Filter to flights with free checked bag | `require_checked_bag=true` |
+| Filter to flights with carry-on included | `carry_on_bags=1` |
+
+### G · Loyalty / awards (within trvl's reach)
+
+| Strategy | trvl call |
+|---|---|
+| Cross-program award sweet-spot scanner | `search_awards seats balances` (provide pre-fetched fixtures from seats.aero or known availability) |
+| Transfer-partner ranking (MR / UR / Bilt / FB / VS / AS) | `search_awards balances` includes transfer ratios |
+| Points-vs-cash comparison | `calculate_points_value program points cash_price` |
+| EU261 compensation awareness | `detect_travel_hacks: eu261` |
+
+### H · Hotel-side discounts
+
+| Strategy | trvl call |
+|---|---|
+| Cross-provider hotel comparison | `search_hotels` (Google + Trivago + Booking + Airbnb + Hostelworld + configured providers, deduplicated by lowest price) |
+| Provider-by-provider for one property | `hotel_prices hotel_id` |
+| Split stay across 2-3 properties | `detect_accommodation_hacks` (€15/move, ≥€50 + 15% saved threshold) |
+| Specific-property fuzzy lookup | `search_hotel_by_name` |
+| Room availability monitor | `watch_room_availability` |
+
+### Out of trvl's reach (mention only — trvl can't search/execute)
+
+These exist in the real world but **trvl has no programmatic access**, so don't promise them:
+
+- Status match / status challenge emails (loyalty programmes, manual)
+- Bid-for-upgrade (Plusgrade, airline portal)
+- Companion voucher application (BA/Alaska/Delta loyalty portal)
+- Mistake-fare Twitter / Reddit monitors (search_deals covers RSS only)
+- Gate-upgrade pricing (in-airport only)
+- Eurostar Snap login + booking (manual per profile note — only the *return-fare-premium* detector fires)
+- Touristanbul / Icelandair stopover programme application (carrier portal)
+- Married-segment fare-class probing (unobservable from public search results)
+- Off-peak award calendar (BA off-peak chart) — `search_awards` needs pre-fetched seats
+
+### Composition heuristics — how the agent should chain strategies
+
+1. **First: run `optimize_booking`** — natively explores 9 expansion strategies with all-in pricing.
+2. **In parallel: run `detect_travel_hacks`** — surfaces anomalies + trip-shape hacks the optimizer doesn't model.
+3. **For hub-carrier endpoints**: after step 1, retry `search_flights` with `return_date` + `layover_at=<all hubs>` + `alliances` to find the throwaway RT.
+4. **For unclear dates**: `find_trip_window` with calendar `busy_intervals` instead of `optimize_trip_dates` — captures conflicts.
+5. **For status users**: layer `lounge_required=true` + `min_layover_minutes=120` + `no_early_connection=true` on every flight search.
+6. **Always conclude with a strategy ledger**: list which strategies fired, which were tried-but-rejected, and why.
+
+---
+
 ## OUTPUT FORMAT — be decisive
 
 ```
