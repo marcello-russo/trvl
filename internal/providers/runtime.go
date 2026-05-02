@@ -298,27 +298,85 @@ func (rt *Runtime) SearchHotels(ctx context.Context, location string, lat, lon f
 	// Filter out circuit-broken providers up-front so the worker pool
 	// only enqueues work that will actually run. Skipped providers do
 	// not appear in statuses (existing behavior preserved).
+	//
+	// Cooldown semantics: once a provider has crossed the failure
+	// threshold, it stays tripped only while it is *still inside the
+	// cooldown window since the last failure*. After cooldown elapses
+	// the provider is allowed through as a half-open probe — a
+	// successful response triggers MarkSuccess (resets ErrorCount), a
+	// failed response refreshes LastErrorAt and re-arms cooldown.
+	//
+	// Pre-fix bug: the check used `now - LastSuccess > cooldown` so
+	// providers whose last success was simply long ago stayed
+	// permanently tripped (Booking/Airbnb/Hostelworld locked out for
+	// 12+ days even though the upstream had recovered).
 	live := make([]*ProviderConfig, 0, len(providers))
 	recovering := make(map[string]int) // provider ID → prior error count for recovery slog
+	// trippedStatuses surfaces circuit-broken providers to the caller so
+	// the agent knows WHICH providers were skipped and WHEN they will
+	// retry. Pre-fix the runtime silently dropped them, leaving callers
+	// unable to explain a small result set.
+	var trippedStatuses []models.ProviderStatus
 	now := time.Now()
 	for _, cfg := range providers {
-		if cfg.ErrorCount >= circuitBreakerThreshold &&
-			(cfg.LastSuccess.IsZero() || now.Sub(cfg.LastSuccess) > circuitBreakerCooldown) {
-			args := []any{
+		if cfg.ErrorCount >= circuitBreakerThreshold {
+			// Determine when the cooldown window started. Prefer the
+			// explicit failure timestamp; fall back to LastSuccess when
+			// LastErrorAt is missing on legacy configs from before the
+			// field existed.
+			tripAt := cfg.LastErrorAt
+			if tripAt.IsZero() {
+				tripAt = cfg.LastSuccess
+			}
+			// When neither timestamp is available, we have no way to
+			// know when the trip happened. Treat the provider as
+			// freshly-tripped and skip — better to wait one full
+			// cooldown than to flood a permanently-bad upstream with
+			// probes. This also preserves the "never-successful
+			// provider stays skipped" contract from earlier behaviour.
+			if tripAt.IsZero() {
+				slog.Warn("circuit breaker: provider tripped",
+					"provider", cfg.ID,
+					"failure_count", cfg.ErrorCount,
+					"last_error_at", "never",
+					"reason", "no_timestamp_freshly_tripped")
+				trippedStatuses = append(trippedStatuses, models.ProviderStatus{
+					ID:      cfg.ID,
+					Name:    cfg.Name,
+					Status:  "circuit_broken",
+					Error:   fmt.Sprintf("circuit breaker tripped after %d consecutive failures (never succeeded; awaiting cooldown)", cfg.ErrorCount),
+					FixHint: "fix the upstream credential / cookie / endpoint, then run `trvl provider reset <id>` to clear the breaker",
+				})
+				continue
+			}
+			if now.Sub(tripAt) < circuitBreakerCooldown {
+				recoveryAt := tripAt.Add(circuitBreakerCooldown)
+				args := []any{
+					"provider", cfg.ID,
+					"failure_count", cfg.ErrorCount,
+					"last_error_at", tripAt.Format(time.RFC3339),
+					"recovery_at", recoveryAt.Format(time.RFC3339),
+				}
+				slog.Warn("circuit breaker: provider tripped", args...)
+				trippedStatuses = append(trippedStatuses, models.ProviderStatus{
+					ID:     cfg.ID,
+					Name:   cfg.Name,
+					Status: "circuit_broken",
+					Error: fmt.Sprintf("circuit breaker tripped after %d consecutive failures; last error: %s; recovery probe at %s",
+						cfg.ErrorCount,
+						cfg.LastError,
+						recoveryAt.Format(time.RFC3339)),
+					FixHint: "wait for cooldown to elapse, or run `trvl provider reset <id>` to retry immediately",
+				})
+				continue
+			}
+			// Cooldown elapsed — let the provider through as a half-open
+			// probe. We log it explicitly so operators can see the
+			// retry attempt in the journal.
+			slog.Info("circuit breaker: half-open probe",
 				"provider", cfg.ID,
 				"failure_count", cfg.ErrorCount,
-			}
-			if cfg.LastSuccess.IsZero() {
-				args = append(args, "last_success", "never")
-			} else {
-				recoveryAt := cfg.LastSuccess.Add(circuitBreakerCooldown)
-				args = append(args,
-					"last_success", cfg.LastSuccess.Format(time.RFC3339),
-					"cooldown_end", recoveryAt.Format(time.RFC3339),
-					"recovery_at", recoveryAt.Format(time.RFC3339))
-			}
-			slog.Warn("circuit breaker: provider tripped", args...)
-			continue
+				"cooldown_elapsed", true)
 		}
 		if cfg.ErrorCount > 0 {
 			recovering[cfg.ID] = cfg.ErrorCount
@@ -450,6 +508,12 @@ func (rt *Runtime) SearchHotels(ctx context.Context, location string, lat, lon f
 		})
 		combined = append(combined, r.hotels...)
 	}
+
+	// Surface circuit-broken providers in the response so the agent can
+	// see which providers were silently dropped before the fan-out.
+	// Pre-fix these were swallowed and the caller had no diagnostic
+	// signal at all — only an unexplained small result set.
+	statuses = append(statuses, trippedStatuses...)
 
 	if len(combined) == 0 && firstErr != nil {
 		return nil, statuses, firstErr

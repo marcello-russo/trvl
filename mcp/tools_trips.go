@@ -218,11 +218,20 @@ func handleListTrips(_ context.Context, args map[string]any, _ ElicitFunc, _ Sam
 		summary = fmt.Sprintf("%d active trip(s): %s", len(list), strings.Join(names, "; "))
 	}
 
-	content, err := buildAnnotatedContentBlocks(summary, list)
+	// Wrap the result in the schema-declared shape ({trips:[], count:N}) so MCP
+	// clients that validate structuredContent against the OutputSchema do not
+	// reject it as "expected record, received array". This mirrors the pattern
+	// used by every other list-style tool in this package.
+	result := map[string]any{
+		"trips": list,
+		"count": len(list),
+	}
+
+	content, err := buildAnnotatedContentBlocks(summary, result)
 	if err != nil {
 		return nil, nil, err
 	}
-	return content, list, nil
+	return content, result, nil
 }
 
 func handleGetTrip(_ context.Context, args map[string]any, _ ElicitFunc, _ SamplingFunc, _ ProgressFunc) ([]ContentBlock, interface{}, error) {

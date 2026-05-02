@@ -59,6 +59,18 @@ func hotelSearchOutputSchema() interface{} {
 					"params":      schemaObject(),
 				},
 			}),
+			"provider_statuses": schemaArrayDesc("Per-provider outcome (Google Hotels / Trivago / Booking / Airbnb / Hostelworld / configured providers). Status: 'ok'|'error'|'skipped'|'circuit_broken'.", map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"id":            schemaString(),
+					"name":          schemaString(),
+					"status":        schemaString(),
+					"results":       schemaInt(),
+					"error":         schemaString(),
+					"fix_hint":      schemaString(),
+					"fix_hint_code": schemaString(),
+				},
+			}),
 			"error": schemaString(),
 		},
 		"required": []string{"success", "count"},

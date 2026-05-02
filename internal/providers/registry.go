@@ -351,5 +351,6 @@ func (r *Registry) MarkError(id string, errMsg string) {
 	}
 	cfg.ErrorCount++
 	cfg.LastError = errMsg
+	cfg.LastErrorAt = time.Now()
 	_ = r.saveLocked(cfg)
 }

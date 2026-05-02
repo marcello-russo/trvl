@@ -152,6 +152,8 @@ func doFlightSearchSingleflight(ctx context.Context, key string, fn func(context
 
 // searchFlightsCore performs the actual flight search without singleflight wrapping.
 func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, destination, date string, opts SearchOptions) (*models.FlightSearchResult, error) {
+	var statuses []models.ProviderStatus
+
 	googleResult, googleErr := searchGoogleFlightsWithClient(ctx, client, origin, destination, date, opts)
 	googleSucceeded := googleErr == nil
 	currency := flightSearchCurrency(googleResult)
@@ -159,6 +161,21 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 	var googleFlights []models.FlightResult
 	if googleSucceeded && googleResult != nil {
 		googleFlights = googleResult.Flights
+	}
+	if googleSucceeded {
+		statuses = append(statuses, models.ProviderStatus{
+			ID:      "google_flights",
+			Name:    "Google Flights",
+			Status:  "ok",
+			Results: len(googleFlights),
+		})
+	} else {
+		statuses = append(statuses, models.ProviderStatus{
+			ID:     "google_flights",
+			Name:   "Google Flights",
+			Status: "error",
+			Error:  googleErr.Error(),
+		})
 	}
 
 	var kiwiFlights []models.FlightResult
@@ -168,9 +185,29 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 		kiwiFlights, kiwiErr = SearchKiwiFlights(ctx, origin, destination, date, currency, opts)
 		if kiwiErr != nil {
 			slog.Warn("kiwi flight search failed", "origin", origin, "destination", destination, "date", date, "error", kiwiErr)
+			statuses = append(statuses, models.ProviderStatus{
+				ID:     "kiwi",
+				Name:   "Kiwi",
+				Status: "error",
+				Error:  kiwiErr.Error(),
+			})
 		} else {
 			kiwiSucceeded = true
+			statuses = append(statuses, models.ProviderStatus{
+				ID:      "kiwi",
+				Name:    "Kiwi",
+				Status:  "ok",
+				Results: len(kiwiFlights),
+			})
 		}
+	} else {
+		statuses = append(statuses, models.ProviderStatus{
+			ID:      "kiwi",
+			Name:    "Kiwi",
+			Status:  "skipped",
+			Error:   "options not supported by Kiwi (e.g. round-trip, alliance/airline filters, baggage requirements)",
+			FixHint: "drop unsupported options or call Kiwi directly via provider=kiwi (when supported)",
+		})
 	}
 
 	var skiplaggedFlights []models.FlightResult
@@ -181,19 +218,40 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 		if err != nil {
 			slog.Warn("skiplagged flight search failed", "origin", origin, "destination", destination, "date", date, "error", err)
 			skiplaggedErr = err
+			statuses = append(statuses, models.ProviderStatus{
+				ID:     "skiplagged",
+				Name:   "Skiplagged",
+				Status: "error",
+				Error:  err.Error(),
+			})
 		} else if skiplaggedResult != nil {
 			skiplaggedFlights = skiplaggedResult.Flights
 			skiplaggedSucceeded = true
+			statuses = append(statuses, models.ProviderStatus{
+				ID:      "skiplagged",
+				Name:    "Skiplagged",
+				Status:  "ok",
+				Results: len(skiplaggedFlights),
+			})
 		}
+	} else {
+		statuses = append(statuses, models.ProviderStatus{
+			ID:      "skiplagged",
+			Name:    "Skiplagged",
+			Status:  "skipped",
+			Error:   "options not supported by Skiplagged (alliance/airline filters or baggage requirements set)",
+			FixHint: "drop unsupported options or call Skiplagged directly via provider=skiplagged",
+		})
 	}
 
 	mergedFlights := mergeFlightResults(googleFlights, kiwiFlights, skiplaggedFlights, opts)
 	if googleSucceeded || kiwiSucceeded || skiplaggedSucceeded {
 		return &models.FlightSearchResult{
-			Success:  true,
-			Count:    len(mergedFlights),
-			TripType: tripTypeForSearch(opts),
-			Flights:  mergedFlights,
+			Success:          true,
+			Count:            len(mergedFlights),
+			TripType:         tripTypeForSearch(opts),
+			Flights:          mergedFlights,
+			ProviderStatuses: statuses,
 		}, nil
 	}
 
@@ -210,12 +268,14 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 	if len(errs) > 0 {
 		err := errors.Join(errs...)
 		return &models.FlightSearchResult{
-			Error: err.Error(),
+			Error:            err.Error(),
+			ProviderStatuses: statuses,
 		}, err
 	}
 
 	return &models.FlightSearchResult{
-		Error: "unreachable flight search state",
+		Error:            "unreachable flight search state",
+		ProviderStatuses: statuses,
 	}, fmt.Errorf("unreachable flight search state")
 }
 

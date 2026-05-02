@@ -93,6 +93,18 @@ func flightSearchOutputSchema() interface{} {
 					"steps":       schemaStringArray(),
 				},
 			}),
+			"provider_statuses": schemaArrayDesc("Per-provider outcome (Google Flights / Kiwi / Skiplagged / configured providers). Status: 'ok'|'error'|'skipped'|'circuit_broken'. Surfaces why a provider was skipped or which ones failed so callers can recover.", map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"id":            schemaString(),
+					"name":          schemaString(),
+					"status":        schemaString(),
+					"results":       schemaInt(),
+					"error":         schemaString(),
+					"fix_hint":      schemaString(),
+					"fix_hint_code": schemaString(),
+				},
+			}),
 			"error": schemaString(),
 		},
 		"required": []string{"success", "count"},
@@ -262,13 +274,20 @@ func handleSearchFlights(ctx context.Context, args map[string]any, elicit Elicit
 
 	// Apply profile hints as defaults — only when the caller has not set the
 	// corresponding parameter explicitly.
+	//
+	// IMPORTANT: PreferredAlliance is intentionally NOT auto-applied as a
+	// hard `Alliances` filter. Doing so silently disables Kiwi and
+	// Skiplagged in the multi-provider merge (their eligibility checks bail
+	// when `len(opts.Alliances) > 0`), and over-narrows Google Flights to
+	// alliance-only routes. The profile alliance hint stays available for
+	// downstream ranking / UI surfacing; if a caller really wants a hard
+	// alliance filter they pass `alliances` explicitly. Reverted as part of
+	// the merge-zero-results regression (default search returned 0 flights
+	// when the user's profile had a preferred alliance set).
 	prof, _ := profile.Load()
 	hints := profile.FlightHints(prof, origin, dest)
 	if _, explicit := args["cabin_class"]; !explicit && hints.CabinClass > 0 && opts.CabinClass == 0 {
 		opts.CabinClass = models.CabinClass(hints.CabinClass)
-	}
-	if _, explicit := args["alliances"]; !explicit && hints.PreferredAlliance != "" && len(opts.Alliances) == 0 {
-		opts.Alliances = []string{hints.PreferredAlliance}
 	}
 	if _, explicit := args["max_price"]; !explicit && hints.MaxPrice > 0 && opts.MaxPrice == 0 {
 		opts.MaxPrice = hints.MaxPrice

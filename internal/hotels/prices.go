@@ -3,10 +3,22 @@ package hotels
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/MikkoParkkola/trvl/internal/batchexec"
 	"github.com/MikkoParkkola/trvl/internal/models"
 )
+
+// isNoProviderPricesError reports whether err is the routine "Google's
+// payload contained no booking partner prices" outcome we want to surface
+// gracefully. We match on the substring rather than a typed error so the
+// behaviour stays robust if the parser layer is refactored.
+func isNoProviderPricesError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "no provider prices found")
+}
 
 // GetHotelPrices looks up booking provider prices for a specific hotel.
 //
@@ -59,6 +71,22 @@ func GetHotelPrices(ctx context.Context, hotelID string, checkIn, checkOut strin
 
 	providers, err := ParseHotelPriceResponse(entries)
 	if err != nil {
+		// "no provider prices found" is a routine outcome — Google sometimes
+		// returns a yY52ce payload with no booking partners for a given
+		// hotel/date pair. Surface this as success=true with an empty
+		// provider list and a Notice so the caller can fall back to the
+		// search-result price (or display "no live partner prices") instead
+		// of treating it as a hard failure. Other parse errors still bubble.
+		if isNoProviderPricesError(err) {
+			return &models.HotelPriceResult{
+				Success:   true,
+				HotelID:   hotelID,
+				CheckIn:   checkIn,
+				CheckOut:  checkOut,
+				Providers: nil,
+				Notice:    "no live booking partners returned prices for this hotel and date range",
+			}, nil
+		}
 		return nil, fmt.Errorf("parse hotel prices: %w", err)
 	}
 

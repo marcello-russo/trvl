@@ -71,12 +71,13 @@ func TestSearchHotelsCircuitBreaksNeverSuccessfulProvider(t *testing.T) {
 	}
 
 	cfg := &ProviderConfig{
-		ID:         "never-success",
-		Name:       "Never Success",
-		Category:   "hotels",
-		Endpoint:   srv.URL + "/search",
-		Method:     "GET",
-		ErrorCount: circuitBreakerThreshold,
+		ID:          "never-success",
+		Name:        "Never Success",
+		Category:    "hotels",
+		Endpoint:    srv.URL + "/search",
+		Method:      "GET",
+		ErrorCount:  circuitBreakerThreshold,
+		LastErrorAt: time.Now(), // ensure cooldown is active so half-open probe does not fire
 		ResponseMapping: ResponseMapping{
 			ResultsPath: "results",
 		},
@@ -97,8 +98,21 @@ func TestSearchHotelsCircuitBreaksNeverSuccessfulProvider(t *testing.T) {
 	if len(hotels) != 0 {
 		t.Fatalf("hotels = %d, want 0", len(hotels))
 	}
-	if len(statuses) != 0 {
-		t.Fatalf("statuses = %d, want 0", len(statuses))
+	// New contract: tripped providers MUST appear in statuses so callers can
+	// see which providers were skipped and why. Surfacing the breaker state
+	// is exactly what the user asked for ("if there is an error, the error
+	// should be passed accordingly").
+	if len(statuses) != 1 {
+		t.Fatalf("statuses = %d, want 1 (circuit_broken)", len(statuses))
+	}
+	if statuses[0].ID != "never-success" {
+		t.Errorf("statuses[0].ID = %q, want %q", statuses[0].ID, "never-success")
+	}
+	if statuses[0].Status != "circuit_broken" {
+		t.Errorf("statuses[0].Status = %q, want %q", statuses[0].Status, "circuit_broken")
+	}
+	if statuses[0].FixHint == "" {
+		t.Errorf("statuses[0].FixHint = empty, want non-empty fix hint")
 	}
 	if calls != 0 {
 		t.Fatalf("provider calls = %d, want 0", calls)

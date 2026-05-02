@@ -92,5 +92,10 @@ type HotelPriceResult struct {
 	CheckIn   string          `json:"check_in"`
 	CheckOut  string          `json:"check_out"`
 	Providers []ProviderPrice `json:"providers"`
-	Error     string          `json:"error,omitempty"`
+	// Notice carries a human-readable, non-error explanation when the
+	// upstream returned a structurally valid response that simply contains
+	// no booking partner prices. Distinct from Error, which signals a hard
+	// failure (HTTP/decode/parse). When Notice is set Success is still true.
+	Notice string `json:"notice,omitempty"`
+	Error  string `json:"error,omitempty"`
 }

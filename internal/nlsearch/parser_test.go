@@ -128,3 +128,72 @@ func TestHeuristic_HotelLocationFromIATA(t *testing.T) {
 		t.Errorf("Location = %q, want BCN", p.Location)
 	}
 }
+
+// TestHeuristic_FromToCityNames covers the previously-broken city-name
+// extraction path. Before the regression fix, "from Helsinki to Prague"
+// returned empty Origin/Destination because the parser only matched
+// uppercase 3-letter IATA codes — yet the tool description advertises
+// city-name examples ("Helsinki to Dubrovnik"). Lock the fix in.
+func TestHeuristic_FromToCityNames(t *testing.T) {
+	cases := []struct {
+		query    string
+		wantOrig string
+		wantDest string
+	}{
+		{"cheapest flight from Helsinki to Prague on 2026-05-07", "HEL", "PRG"},
+		{"flight from Amsterdam to Helsinki next week", "AMS", "HEL"},
+		{"from New York to London", "JFK", "LHR"},
+		{"from Paris to Tokyo", "CDG", "HND"},
+		{"trip from Krakow to Amsterdam in May", "KRK", "AMS"},
+	}
+	for _, tc := range cases {
+		p := Heuristic(tc.query, "2026-05-02")
+		if p.Origin != tc.wantOrig {
+			t.Errorf("query %q: Origin = %q, want %q", tc.query, p.Origin, tc.wantOrig)
+		}
+		if p.Destination != tc.wantDest {
+			t.Errorf("query %q: Destination = %q, want %q", tc.query, p.Destination, tc.wantDest)
+		}
+	}
+}
+
+// TestHeuristic_NaturalDate locks in the previously-broken natural date
+// parsing for queries like "7 May 2026" / "May 7, 2026". Before the
+// fix the parser only recognised ISO 8601 calendar dates.
+func TestHeuristic_NaturalDate(t *testing.T) {
+	cases := []struct {
+		query string
+		want  string
+	}{
+		{"flight from HEL to PRG on 7 May 2026", "2026-05-07"},
+		{"flight from HEL to PRG on May 7 2026", "2026-05-07"},
+		{"flight from HEL to PRG on May 7, 2026", "2026-05-07"},
+		{"flight from HEL to PRG on 28 December 2026", "2026-12-28"},
+		{"flight from HEL to PRG on 1 jan 2027", "2027-01-01"},
+	}
+	for _, tc := range cases {
+		p := Heuristic(tc.query, "2026-05-02")
+		if p.Date != tc.want {
+			t.Errorf("query %q: Date = %q, want %q", tc.query, p.Date, tc.want)
+		}
+	}
+}
+
+// TestHeuristic_FullNaturalQuery covers the end-to-end query format we
+// surface in the search_natural tool description, exercising both
+// city-name and natural-date code paths together.
+func TestHeuristic_FullNaturalQuery(t *testing.T) {
+	p := Heuristic("cheapest flight from Helsinki to Prague on 7 May 2026, one way", "2026-05-02")
+	if p.Intent != "flight" {
+		t.Errorf("Intent = %q, want flight", p.Intent)
+	}
+	if p.Origin != "HEL" {
+		t.Errorf("Origin = %q, want HEL", p.Origin)
+	}
+	if p.Destination != "PRG" {
+		t.Errorf("Destination = %q, want PRG", p.Destination)
+	}
+	if p.Date != "2026-05-07" {
+		t.Errorf("Date = %q, want 2026-05-07", p.Date)
+	}
+}

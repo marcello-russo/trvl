@@ -47,7 +47,15 @@ type FlightSearchResult struct {
 	Count    int            `json:"count"`
 	TripType string         `json:"trip_type"`
 	Flights  []FlightResult `json:"flights"`
-	Error    string         `json:"error,omitempty"`
+	// ProviderStatuses reports the outcome of each upstream flight
+	// provider (Google Flights / Kiwi / Skiplagged) so callers can see
+	// which providers contributed, which were skipped, and which failed
+	// — and why. Mirrors the per-provider transparency pattern already
+	// used for hotel search. When a provider returns 0 results without
+	// an error its status is "ok" with Results=0; this is distinct from
+	// "error" or "skipped".
+	ProviderStatuses []ProviderStatus `json:"provider_statuses,omitempty"`
+	Error            string           `json:"error,omitempty"`
 }
 
 // DatePriceResult represents the cheapest price for a single departure date.

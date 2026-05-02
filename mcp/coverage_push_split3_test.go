@@ -259,6 +259,30 @@ func TestHandleListTrips_EmptyStore(t *testing.T) {
 	_ = structured
 }
 
+// TestHandleListTrips_ReturnsSchemaShape locks in the regression fix where
+// handleListTrips returned a raw []*trips.Trip array, mismatching the
+// declared OutputSchema of {trips:[], count:N}. MCP clients that validate
+// structuredContent against the schema rejected the response with
+// "expected record, received array".
+func TestHandleListTrips_ReturnsSchemaShape(t *testing.T) {
+	_, structured, err := handleListTrips(context.Background(),
+		map[string]any{}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m, ok := structured.(map[string]any)
+	if !ok {
+		t.Fatalf("structured = %T, want map[string]any matching OutputSchema "+
+			"({trips:[], count:N}); array-shape regression must not return", structured)
+	}
+	if _, ok := m["trips"]; !ok {
+		t.Errorf("structured missing \"trips\" key: %#v", m)
+	}
+	if _, ok := m["count"]; !ok {
+		t.Errorf("structured missing \"count\" key: %#v", m)
+	}
+}
+
 // --- handleGetPreferences (0% coverage) ---
 
 func TestHandleGetPreferences_Loads(t *testing.T) {

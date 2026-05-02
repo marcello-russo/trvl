@@ -78,6 +78,24 @@ From? · To? · When (date/window)? · Flex? · Travelers? · Budget? · Carry-o
 
 ---
 
+## CORE TOOLS (selected high-signal tools; trvl exposes 61 MCP tools overall via gateway_invoke server="trvl")
+
+Quick reference for the highest-signal tools. The full surface is below.
+
+| Tool | Use |
+|---|---|
+| `search_flights` | Flights via Google Flights + Kiwi + Skiplagged merge |
+| `search_dates` | Cheapest-by-date across a range |
+| `search_hotels` | Multi-provider hotel search |
+| `search_route` | Multi-modal: flights + Bus/train/ferry (20 providers) |
+| `search_ground` | Bus/train/ferry (20 providers) |
+| `plan_trip` | Flights + hotels in one parallel search |
+| `optimize_booking` | Unified optimizer with 9 expansion strategies |
+| `get_preferences` / `update_preferences` | User profile + travel hints |
+| `create_trip` / `add_trip_leg` | Persistent trip state with full leg detail |
+
+---
+
 ## TOOL SURFACE — ALL 61 TOOLS
 
 ### Flights (12)

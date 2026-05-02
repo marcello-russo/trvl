@@ -45,8 +45,17 @@ type ProviderConfig struct {
 	Consent         *ConsentRecord    `json:"consent,omitempty"`
 	LastSuccess     time.Time         `json:"last_success,omitempty"`
 	LastError       string            `json:"last_error,omitempty"`
-	ErrorCount      int               `json:"error_count,omitempty"`
-	Version         int               `json:"version"`
+	// LastErrorAt records the timestamp of the most recent failure. The
+	// circuit breaker uses this to time the cooldown window: once
+	// `now - LastErrorAt >= circuitBreakerCooldown`, the provider is
+	// allowed back into half-open probe state. Before this field existed
+	// the breaker compared `now - LastSuccess > cooldown`, which made it
+	// permanently trip providers whose last success was simply long ago
+	// (regression: hotel providers Booking/Airbnb/Hostelworld stayed
+	// locked out for days after their first ErrorCount-threshold burst).
+	LastErrorAt time.Time `json:"last_error_at,omitempty"`
+	ErrorCount  int       `json:"error_count,omitempty"`
+	Version     int       `json:"version"`
 
 	// Personal marks a provider as owned by a specific user and carrying
 	// personally-obtained credentials (e.g. AF-KLM, Ticketmaster personal keys).

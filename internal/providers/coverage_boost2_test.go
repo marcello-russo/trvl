@@ -504,8 +504,13 @@ func TestSearchProvider_FreeCancellationFilter(t *testing.T) {
 	}
 }
 
-// TestSearchProvider_CircuitBreakerSkips verifies that a provider with enough
-// consecutive errors and no recent success is skipped by the circuit breaker.
+// TestSearchProvider_CircuitBreakerSkips verifies that a provider whose
+// cooldown window has not yet elapsed is skipped by the circuit breaker.
+// The cooldown is timed from the most recent failure (LastErrorAt), not
+// from the most recent success — so a provider that has been failing
+// continuously is skipped while still inside the cooldown window and
+// eventually allowed back through as a half-open probe once cooldown
+// expires (covered by TestSearchProvider_CircuitBreakerHalfOpenProbe).
 
 func TestSearchProvider_CircuitBreakerSkips(t *testing.T) {
 	called := false
@@ -529,6 +534,10 @@ func TestSearchProvider_CircuitBreakerSkips(t *testing.T) {
 		},
 		RateLimit:   RateLimitConfig{RequestsPerSecond: 100, Burst: 100},
 		ErrorCount:  circuitBreakerThreshold, // at threshold
+		// Failure happened inside the cooldown window — provider must be
+		// skipped. We set LastErrorAt to "now" so the cooldown is
+		// definitively still active.
+		LastErrorAt: time.Now(),
 		LastSuccess: time.Now().Add(-(circuitBreakerCooldown + time.Minute)),
 	}
 	_ = reg.Save(cfg)
@@ -538,10 +547,67 @@ func TestSearchProvider_CircuitBreakerSkips(t *testing.T) {
 		"2026-02-01", "2026-02-03", "EUR", 1, nil)
 
 	if called {
-		t.Error("circuit-broken provider should not have been called")
+		t.Error("circuit-broken provider (cooldown not elapsed) should not have been called")
 	}
 	// Statuses should be empty (provider was skipped entirely)
 	_ = statuses
+}
+
+// TestSearchProvider_CircuitBreakerHalfOpenProbe locks in the recovery
+// behaviour: once the cooldown window has elapsed since the last
+// failure, the breaker enters half-open state and allows exactly one
+// probe through. A successful probe closes the breaker (resets
+// ErrorCount via MarkSuccess); a failing probe re-arms cooldown.
+//
+// Pre-fix bug: the breaker compared `now - LastSuccess > cooldown` and
+// skipped any provider whose last success was simply long ago, which
+// permanently locked out providers that had ever crossed the threshold
+// (Booking.com / Airbnb / Hostelworld stayed offline for 12+ days).
+func TestSearchProvider_CircuitBreakerHalfOpenProbe(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		json.NewEncoder(w).Encode(map[string]any{"hotels": []any{
+			map[string]any{"id": "h1", "name": "Recovered Hotel", "price": 100.0, "currency": "EUR"},
+		}})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	reg, _ := NewRegistryAt(dir)
+	cfg := &ProviderConfig{
+		ID:       "circuit-recover",
+		Name:     "CircuitRecover",
+		Category: "hotels",
+		Endpoint: srv.URL + "/search",
+		Method:   "GET",
+		ResponseMapping: ResponseMapping{
+			ResultsPath: "hotels",
+			Fields:      map[string]string{"name": "name"},
+		},
+		RateLimit:  RateLimitConfig{RequestsPerSecond: 100, Burst: 100},
+		ErrorCount: circuitBreakerThreshold,
+		// Last failure happened well outside the cooldown window —
+		// breaker must allow this provider back through as a probe.
+		LastErrorAt: time.Now().Add(-(circuitBreakerCooldown + time.Minute)),
+	}
+	_ = reg.Save(cfg)
+
+	rt := NewRuntime(reg)
+	_, _, _ = rt.SearchHotels(context.Background(), "Oslo", 59.91, 10.75,
+		"2026-02-01", "2026-02-03", "EUR", 1, nil)
+
+	if !called {
+		t.Fatal("provider must be called as a half-open probe once cooldown has elapsed")
+	}
+	// Successful probe should have closed the breaker.
+	updated := reg.Get("circuit-recover")
+	if updated == nil {
+		t.Fatal("provider config disappeared after probe")
+	}
+	if updated.ErrorCount != 0 {
+		t.Errorf("ErrorCount = %d after successful half-open probe, want 0", updated.ErrorCount)
+	}
 }
 
 // TestSearchProvider_BrowserCookiesSource exercises the cookies.source=="browser"
