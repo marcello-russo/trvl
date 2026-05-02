@@ -3,9 +3,10 @@
 // block as the post-quantum half of the hybrid signing pipeline (the other
 // half is cosign keyless via Sigstore + GH OIDC).
 //
-// The private key is read from the TRVL_MLDSA_PRIVKEY env var (hex-encoded
-// 4032-byte ML-DSA-65 private key, sourced from the GH Secret of the same
-// name). The key is never logged or written to disk by this tool.
+// The private key is read from the TRVL_MLDSA_PRIVKEY_V1 env var
+// (hex-encoded 4032-byte ML-DSA-65 private key, sourced from the GH
+// Secret of the same name). The key is never logged or written to disk
+// by this tool.
 //
 // Signature scheme: instead of streaming the entire archive into ML-DSA's
 // SignTo, we sign the SHA-256 hash of the archive bytes. This keeps the
@@ -40,7 +41,13 @@ import (
 )
 
 const (
-	envPrivkey = "TRVL_MLDSA_PRIVKEY"
+	// envPrivkey names the env var that holds the hex-encoded ML-DSA-65
+	// privkey. The _V1 suffix is intentional: it pins the trust-anchor
+	// version this signing tool produces signatures against, and matches
+	// the GitHub Actions secret of the same name. Reading the env var
+	// directly (rather than via goreleaser's `.Env` template) sidesteps
+	// goreleaser's allowlist behavior in older goreleaser-action versions.
+	envPrivkey = "TRVL_MLDSA_PRIVKEY_V1"
 	sigSuffix  = ".mldsa65.sig"
 )
 

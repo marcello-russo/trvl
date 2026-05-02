@@ -94,8 +94,6 @@ signs:
       - "${signature}"
     artifacts: archive
     signature: "${artifact}.mldsa65.sig"
-    env:
-      - "TRVL_MLDSA_PRIVKEY={{ .Env.TRVL_MLDSA_PRIVKEY_V1 }}"
     output: true
 
 changelog:
