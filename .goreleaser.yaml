@@ -51,6 +51,53 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# Hybrid quantum-safe release signing (NIST SP 800-208 transition pattern).
+# Each archive is signed twice:
+#
+#   1. cosign keyless (ECDSA-P256 via Sigstore + GitHub OIDC). No persisted
+#      signing key — Fulcio mints a short-lived cert tied to the workflow
+#      identity at sign time. Defends against compromised release uploads
+#      under classical cryptanalysis. Bundle file: <archive>.cosign.bundle.
+#
+#   2. ML-DSA-65 (NIST FIPS 204) via cmd/sign-mldsa. Long-lived keypair;
+#      pubkey embedded in trvl at internal/selfupdate/keys/, privkey in
+#      GH Secret TRVL_MLDSA_PRIVKEY_V1 with 1Password backup. Defends
+#      against future quantum-cryptanalysis of layer 1. Sig file:
+#      <archive>.mldsa65.sig.
+#
+# Verification (in trvl auto-update path): SHA-256 vs checksums.txt, then
+# cosign verify-blob against the workflow identity, then ML-DSA verify
+# against the embedded trust anchor. ALL THREE must pass before binary
+# replacement. See internal/selfupdate/verify_mldsa.go for the verifier.
+#
+# Local snapshot builds (`goreleaser release --snapshot`) skip signs by
+# default — only `goreleaser release` (tag-driven, in CI) runs them.
+signs:
+  - id: cosign-keyless
+    cmd: cosign
+    args:
+      - "sign-blob"
+      - "--bundle=${signature}"
+      - "--yes"
+      - "${artifact}"
+    artifacts: archive
+    signature: "${artifact}.cosign.bundle"
+    output: true
+  - id: mldsa65
+    cmd: go
+    args:
+      - "run"
+      - "./cmd/sign-mldsa"
+      - "--in"
+      - "${artifact}"
+      - "--out"
+      - "${signature}"
+    artifacts: archive
+    signature: "${artifact}.mldsa65.sig"
+    env:
+      - "TRVL_MLDSA_PRIVKEY={{ .Env.TRVL_MLDSA_PRIVKEY_V1 }}"
+    output: true
+
 changelog:
   sort: asc
   filters:

@@ -7,6 +7,7 @@ require (
 	github.com/bogdanfinn/fhttp v0.6.8
 	github.com/bogdanfinn/utls v1.7.7-barnius
 	github.com/browserutils/kooky v0.2.9
+	github.com/cloudflare/circl v1.6.3
 	github.com/grafana/sobek v0.0.0-20260406180825-6d789dcdd177
 	github.com/klauspost/compress v1.18.5
 	github.com/refraction-networking/utls v1.8.2
@@ -26,7 +27,6 @@ require (
 	github.com/browserutils/ese v0.0.0-20260314233042-37b6a03a93ce // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
