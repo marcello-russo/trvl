@@ -38,10 +38,16 @@ jobs:
       # Install cosign for hybrid release signing — see signs: block in
       # .goreleaser.yaml. Keyless mode uses the workflow's OIDC token
       # against Sigstore's Fulcio, no extra secrets needed.
+      #
+      # Pin to v2.2.4: newer cosign versions (>=2.4.0) ship stricter bundle
+      # parsing that rejects the older bundle format goreleaser-action's
+      # own self-verification depends on, breaking the goreleaser download
+      # step. v2.2.4 is the widely-deployed version used by goreleaser's
+      # own release pipeline and is fully compatible with our signs: block.
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
         with:
-          cosign-release: 'v2.4.1'
+          cosign-release: 'v2.2.4'
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
