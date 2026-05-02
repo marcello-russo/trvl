@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-05-02
+
+### Added
+- **Hybrid quantum-safe release signing** — every release archive now ships with TWO independent signatures: a cosign keyless ECDSA-P256 signature (Sigstore + GitHub OIDC, no persisted key, classical adversary defense) and an ML-DSA-65 signature (NIST FIPS 204, post-quantum lattice-based, embedded trust anchor, future-quantum-cryptanalysis defense). NIST SP 800-208 transition pattern: defense in depth so a single-layer compromise doesn't break the chain. New release assets per archive: `<archive>.cosign.bundle` and `<archive>.mldsa65.sig`. The matching verifier ships in `internal/selfupdate/` for use by the upcoming v1.2.0 auto-update client.
+- **`cmd/keygen-mldsa`** — one-time-use keypair generator for the ML-DSA-65 release-signing root of trust. Marshal/unmarshal + sign-verify roundtrip canary catches a corrupt pair before the privkey ever reaches durable storage.
+- **`cmd/sign-mldsa`** — signs a release artifact's SHA-256 digest with the long-lived ML-DSA-65 release key (privkey from `$TRVL_MLDSA_PRIVKEY` env, never logged, never written to disk). Self-verifies the produced signature before writing it so a corrupt key in the secret aborts the release rather than producing un-verifiable signatures.
+- **`internal/selfupdate/verify_mldsa.go`** — verifier with the trust-anchor pubkey embedded via `go:embed` at compile time (fingerprint `05281eded06cc2ab`). Distinguishes `errSignatureMismatch` (forged binary, abort permanently) from I/O errors (transient, retry next start) so the auto-update path can treat them differently.
+
+### Changed
+- **`.goreleaser.yaml`** — added `signs:` block with two entries (cosign-keyless + mldsa65). Local snapshot builds (`goreleaser release --snapshot`) skip signs by default; only tag-driven CI releases run them.
+- **`.github/workflows/release.yml`** — installs cosign v2.4.1 via `sigstore/cosign-installer@v3`, exposes `TRVL_MLDSA_PRIVKEY_V1` from the GH Secret, requests `id-token: write` so cosign keyless can request its OIDC token.
+- **`go.mod`** — `github.com/cloudflare/circl@v1.6.3` promoted from indirect to direct dependency (FIPS 204 ML-DSA-65 implementation).
+
 ## [1.1.1] - 2026-05-02
 
 ### Fixed
