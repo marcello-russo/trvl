@@ -50,7 +50,15 @@ jobs:
           cosign-release: 'v2.2.4'
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v7
+        # Pin to v6.4.0: goreleaser-action@v7 introduced a cosign-based
+        # self-verification of the downloaded goreleaser binary, which is
+        # incompatible with the new sigstore-bundle-v0.3 format goreleaser
+        # ships in v2.4+ (the action passes --bundle to cosign without the
+        # --new-bundle-format flag, so cosign rejects the bundle as
+        # "does not contain cert"). v6.4.0 skips that pre-flight check;
+        # our own signs: block in .goreleaser.yaml still uses the
+        # cosign-installer cosign for signing release artifacts correctly.
+        uses: goreleaser/goreleaser-action@v6.4.0
         with:
           distribution: goreleaser
           version: "~> v2"
