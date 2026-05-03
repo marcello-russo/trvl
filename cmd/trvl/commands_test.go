@@ -12,7 +12,9 @@ import (
 
 func TestRootCmd_SubcommandCount(t *testing.T) {
 	// rootCmd is the package-level var registered in root.go init().
-	const want = 56
+	// Bumped 56 -> 57 when self-update landed (v1.2.0 client-side
+	// auto-update path).
+	const want = 57
 	got := len(rootCmd.Commands())
 	if got != want {
 		names := make([]string, 0, got)
