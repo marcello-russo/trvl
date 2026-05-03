@@ -804,6 +804,18 @@ func providerHealthTool() ToolDef {
 						"last_error":    schemaString(),
 					},
 				}),
+				"trvl_update_available": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"available":       schemaBool(),
+						"latest_version":  schemaString(),
+						"current_version": schemaString(),
+						"release_url":     schemaString(),
+						"checked_at":      schemaString(),
+						"install_method":  schemaString(),
+						"upgrade_hint":    schemaString(),
+					},
+				},
 			},
 		},
 		Annotations: &ToolAnnotations{
@@ -869,16 +881,33 @@ func handleProviderHealth(_ context.Context, _ map[string]any, _ ElicitFunc, _ S
 	// to make their own network call. Read-only against the on-disk
 	// cache populated by the daily background check; never blocks.
 	if info := selfupdate.LoadCachedInfo(); info.LatestVersion != "" {
-		structured["trvl_update_available"] = map[string]any{
+		// Detect how trvl was installed so the upgrade advice routes to
+		// the right channel: brew users get `brew upgrade trvl`, npm
+		// users get `npm install -g trvl-mcp@latest`, standalone tarball
+		// users get `trvl self-update`. Detection is read-only against
+		// the running binary's path — no subprocesses, no network.
+		method := selfupdate.DetectInstallMethod(info.CurrentVersion)
+		hint := method.UpgradeHint()
+
+		updateField := map[string]any{
 			"available":       info.UpdateAvailable,
 			"latest_version":  info.LatestVersion,
 			"current_version": info.CurrentVersion,
 			"release_url":     info.ReleaseURL,
 			"checked_at":      info.CheckedAt,
+			"install_method":  method.String(),
 		}
+		if hint != "" {
+			updateField["upgrade_hint"] = hint
+		}
+		structured["trvl_update_available"] = updateField
+
 		if info.UpdateAvailable {
 			text += fmt.Sprintf("\n\ntrvl v%s available (you have v%s). Release notes: %s",
 				info.LatestVersion, info.CurrentVersion, info.ReleaseURL)
+			if hint != "" {
+				text += fmt.Sprintf("\nUpgrade: %s", hint)
+			}
 		}
 	}
 
