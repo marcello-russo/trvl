@@ -11,6 +11,7 @@ import (
 
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/providers"
+	"github.com/MikkoParkkola/trvl/internal/selfupdate"
 )
 
 // textContent returns a single-element text content block slice.
@@ -862,6 +863,25 @@ func handleProviderHealth(_ context.Context, _ map[string]any, _ ElicitFunc, _ S
 
 	text := fmt.Sprintf("Provider health (%d provider(s)):\n%s", len(rows), strings.Join(lines, "\n"))
 	structured := map[string]any{"providers": rows}
+
+	// Surface the cached update-check info so AI assistants can mention
+	// "trvl v1.1.3 available" alongside provider health without needing
+	// to make their own network call. Read-only against the on-disk
+	// cache populated by the daily background check; never blocks.
+	if info := selfupdate.LoadCachedInfo(); info.LatestVersion != "" {
+		structured["trvl_update_available"] = map[string]any{
+			"available":       info.UpdateAvailable,
+			"latest_version":  info.LatestVersion,
+			"current_version": info.CurrentVersion,
+			"release_url":     info.ReleaseURL,
+			"checked_at":      info.CheckedAt,
+		}
+		if info.UpdateAvailable {
+			text += fmt.Sprintf("\n\ntrvl v%s available (you have v%s). Release notes: %s",
+				info.LatestVersion, info.CurrentVersion, info.ReleaseURL)
+		}
+	}
+
 	content, err := buildAnnotatedContentBlocks(text, structured)
 	if err != nil {
 		return nil, nil, err

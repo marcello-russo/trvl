@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-05-03
+
+### Added
+- **Daily update-check notification** — `cmd/trvl/main.go` now spawns a fire-and-forget goroutine on every CLI invocation that hits the GH releases API once per 24h (cached at `~/.trvl/update-check.json`) and prints a single-line stderr notice on the next invocation when a newer version is available: `trvl: v1.1.3 available (you have v1.1.2). Release notes: <url>`. Skipped automatically for dev builds, CI environments (CI / GITHUB_ACTIONS / GITLAB_CI / CircleCI / Buildkite / Drone / Jenkins / etc), and when `TRVL_DISABLE_UPDATE_CHECK` is set. Bounded to 6s so trvl's exit is never noticeably delayed.
+- **`provider_health` MCP tool surfaces update availability** — adds `trvl_update_available: {available, latest_version, current_version, release_url, checked_at}` to the structured output and a one-line append to the human-readable text when an update is available. AI assistants can now mention "trvl v1.1.3 available" alongside provider health without making their own network call.
+
+### Changed
+- **goreleaser config: migrate `archives.format` → `archives.formats: [tar.gz]`** to silence the v2 deprecation warning. Pre-empts a future hard breakage when goreleaser drops `format` entirely. No user-facing change.
+
 ## [1.1.2] - 2026-05-02
 
 ### Added
