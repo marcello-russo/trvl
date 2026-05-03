@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-05-02
+
+### Fixed
+- **Race condition in `selfupdate.CheckInBackground`** — `internal/selfupdate/notify.go` previously spawned a goroutine that read the cache, recomputed `UpdateAvailable`, and called `NotifyAvailable`, but `cmd/trvl/main.go` typically exits within milliseconds of `rootCmd.Execute()` returning. The goroutine was killed before it could write the notice to stderr in the common path, so the v1.1.3 daily-update notifier was effectively dead in the wild. Split the function: the warm-cache read + `NotifyAvailable` now run synchronously (microseconds, completes before main exits), and only the HTTP refresh (which populates the cache for the *next* invocation) runs in a 6s-bounded goroutine. Net effect: notification latency is "next invocation after the first one that hit a cold/stale cache". v1.1.3 cache files already on disk feed straight into v1.1.4's correct sync-read path, so the fix self-heals without user intervention. Added `semverCmp` wrapper around `upgrade.CompareSemver` to keep notify.go's imports tight.
+
 ## [1.1.3] - 2026-05-03
 
 ### Added
