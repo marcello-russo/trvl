@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-02
+
+### Added
+- **`trvl self-update` CLI command** — user-initiated update of the running trvl binary with full cryptographic verification before any swap. Behavior branches by install method (auto-detected from the binary's path):
+  - **Homebrew / `go install` / npm**: print the channel-correct upgrade hint (`brew upgrade trvl` / `go install ...@latest` / `npm install -g trvl-mcp@latest`) and exit. trvl REFUSES to overwrite a binary tracked by an external package manager's manifest.
+  - **Standalone tarball**: download the latest GH release archive + checksums.txt + `.mldsa65.sig`, verify SHA-256 against the published checksums, verify ML-DSA-65 (NIST FIPS 204 post-quantum) signature against the trust anchor embedded at compile time (fingerprint `05281eded06cc2ab`), extract the binary, atomically replace the running file. Any verification failure aborts and leaves the on-disk binary untouched.
+  - **dev build**: no-op.
+  - **unclassified**: refuse unless `--force-standalone` is passed.
+  Flags: `--check` (non-destructive lookup), `--version=X` (pin target), `--force-standalone` (override unclassified). The trust-anchor fingerprint is printed before any swap so users can spot-check it matches the published value.
+- **Install-method detector** (`internal/selfupdate/install_method.go`) — classifies the running trvl binary as one of `{dev, brew, go, npm, standalone, unclassified}` based on path heuristics (Homebrew Cellar layout, `$GOBIN`/`$GOPATH/bin`, `node_modules/trvl-mcp/bin/`, system temp). Read-only — no subprocesses, no network. `SupportsInPlaceReplace()` returns true only for Standalone; `UpgradeHint()` returns the channel-correct one-liner.
+- **`provider_health` MCP tool now reports `install_method` + `upgrade_hint`** — when an update is available, the structured output includes the user's install channel and the exact command they should run to upgrade. AI assistants can now give the *correct* upgrade gesture per user instead of a one-size-fits-all hint.
+
+### Internal
+- New verifier helpers: `verifySHA256`, `readExpectedChecksum` (goreleaser + BSD-style `sha256sum` formats), `sha256File`, `verifyMLDSAFile`, `extractBinaryFromTarGz` (rejects `..` traversal + absolute paths + symlinks), `atomicReplace` (Unix `rename(2)` -> Windows `.old` shuffle -> cross-FS copy fallback).
+- Subcommand-count gate bumped 56 -> 57.
+- Cosign keyless verification is intentionally NOT yet performed in the self-update path — ML-DSA-65 alone provides full cryptographic guarantee against silent tampering. Cosign verification via sigstore-go will land in a follow-up for defense-in-depth.
+
 ## [1.1.4] - 2026-05-02
 
 ### Fixed
