@@ -8,9 +8,7 @@ import (
 )
 
 func TestVersionCmd_DefaultOutput(t *testing.T) {
-	t.Parallel()
-	// Re-clone the cobra command so we don't mutate global state if other
-	// tests run in parallel.
+	// versionCmd and versionJSON are package-level Cobra state.
 	var buf bytes.Buffer
 	versionCmd.SetOut(&buf)
 	versionCmd.SetErr(&buf)
@@ -26,7 +24,7 @@ func TestVersionCmd_DefaultOutput(t *testing.T) {
 }
 
 func TestVersionCmd_JSONOutput(t *testing.T) {
-	t.Parallel()
+	// versionCmd and versionJSON are package-level Cobra state.
 	var buf bytes.Buffer
 	versionCmd.SetOut(&buf)
 	versionCmd.SetErr(&buf)
