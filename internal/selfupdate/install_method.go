@@ -148,6 +148,9 @@ func DetectInstallMethod(currentVer string) InstallMethod {
 // macOS Intel brew uses /usr/local/Cellar/...
 // All three contain the literal "/Cellar/trvl/" substring.
 func isBrewPath(p string) bool {
+	if filepath.VolumeName(p) != "" {
+		return false
+	}
 	return strings.Contains(filepath.ToSlash(p), "/Cellar/trvl/")
 }
 

@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -446,8 +445,3 @@ func TestUpdater_PerformUpdate_MLDSAMismatch(t *testing.T) {
 		t.Errorf("binary was modified on mldsa failure: %q", got)
 	}
 }
-
-// readSeekToReader is a tiny wrapper used in test helpers below.
-type readSeekToReader struct{ io.Reader }
-
-func (r readSeekToReader) Read(p []byte) (int, error) { return r.Reader.Read(p) }
