@@ -19,7 +19,7 @@ type fakeDaemonTickerV28 struct {
 
 func TestWatchAddCmd_FlagsExist(t *testing.T) {
 	cmd := watchAddCmd()
-	for _, name := range []string{"below", "currency", "return"} {
+	for _, name := range []string{"below", "currency", "return", "last-minute", "last-minute-drop"} {
 		if f := cmd.Flags().Lookup(name); f == nil {
 			t.Errorf("expected --%s flag on watchAddCmd", name)
 		}
@@ -107,6 +107,35 @@ func TestWatchAddCmd_HotelType(t *testing.T) {
 	cmd.SetArgs([]string{"Prague", "--type", "hotel", "--depart", "2026-07-01", "--return", "2026-07-08"})
 	if err := cmd.Execute(); err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestWatchAddCmd_HotelLastMinutePersistsMode(t *testing.T) {
+	tmp := t.TempDir()
+	setTestHome(t, tmp)
+	cmd := watchAddCmd()
+
+	cmd.SetArgs([]string{"Prague", "--type", "hotel", "--depart", "2026-07-01", "--return", "2026-07-02", "--last-minute", "--last-minute-drop", "30"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("watch add: %v", err)
+	}
+
+	store, err := watch.DefaultStore()
+	if err != nil {
+		t.Fatalf("DefaultStore: %v", err)
+	}
+	if err := store.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	watches := store.List()
+	if len(watches) != 1 {
+		t.Fatalf("stored watches = %d, want 1", len(watches))
+	}
+	if !watches[0].LastMinuteMode {
+		t.Fatal("LastMinuteMode = false, want true")
+	}
+	if watches[0].LastMinuteDropPct != 30 {
+		t.Fatalf("LastMinuteDropPct = %.0f, want 30", watches[0].LastMinuteDropPct)
 	}
 }
 

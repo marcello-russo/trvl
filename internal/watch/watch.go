@@ -39,6 +39,11 @@ type Watch struct {
 	LowestPrice  float64   `json:"lowest_price"`
 	CheapestDate string    `json:"cheapest_date,omitempty"` // which date had the lowest price
 
+	// Last-minute hotel mode flags sub-48h availability when the current price
+	// is materially below LastPrice. Drop threshold defaults to 25%.
+	LastMinuteMode    bool    `json:"last_minute_mode,omitempty"`
+	LastMinuteDropPct float64 `json:"last_minute_drop_pct,omitempty"`
+
 	// Webhook notification URL. When set and a price drop is detected, a JSON
 	// payload is POSTed to this URL (fire-and-forget, 10s timeout).
 	WebhookURL string `json:"webhook_url,omitempty"`
@@ -131,6 +136,15 @@ func (w Watch) Validate() error {
 			return fmt.Errorf("opportunity watch requires favourites or a min_nights value")
 		}
 		return nil
+	}
+
+	if w.LastMinuteMode {
+		if w.Type != "hotel" {
+			return fmt.Errorf("last-minute mode is only supported for hotel watches")
+		}
+		if w.LastMinuteDropPct < 0 {
+			return fmt.Errorf("last-minute drop threshold must be non-negative")
+		}
 	}
 
 	if w.DepartDate != "" && (w.DepartFrom != "" || w.DepartTo != "") {

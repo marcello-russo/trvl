@@ -442,6 +442,8 @@ func TestWatchAddCmd_Flags(t *testing.T) {
 		{"below", "0"},
 		{"currency", ""},
 		{"type", "flight"},
+		{"last-minute", "false"},
+		{"last-minute-drop", "25"},
 	}
 	for _, tt := range flags {
 		f := cmd.Flags().Lookup(tt.name)
@@ -696,7 +698,22 @@ func TestPricesCmd_Flags(t *testing.T) {
 	}
 }
 
+func TestPricesCmd_HasHoldAndRebookSubcommands(t *testing.T) {
+	cmd := pricesCmd()
+	for _, name := range []string{"hold", "rebook"} {
+		found := false
+		for _, sub := range cmd.Commands() {
+			if sub.Name() == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("prices missing %q subcommand", name)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // reviews command
 // ---------------------------------------------------------------------------
-

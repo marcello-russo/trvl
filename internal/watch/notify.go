@@ -41,8 +41,24 @@ func (n *Notifier) Notify(r CheckResult) {
 		return
 	}
 
-	route := fmt.Sprintf("%s -> %s", r.Watch.Origin, r.Watch.Destination)
+	route := notifyRoute(r.Watch)
 	priceStr := fmt.Sprintf("%.0f %s", r.NewPrice, r.Currency)
+
+	if r.LastMinuteDeal {
+		line := fmt.Sprintf("LAST-MINUTE  %s  %s (%.1f%% below last seen)",
+			route, priceStr, r.LastMinuteDiscountPercent)
+		fmt.Fprintln(n.Out, n.green(line))
+		if url := buildBookingURL(r.Watch); url != "" {
+			fmt.Fprintf(n.Out, "      Book: %s\n", url)
+		}
+		if n.Desktop {
+			n.desktopNotify(
+				"trvl: Last-Minute Hotel Deal!",
+				fmt.Sprintf("%s %s — %.1f%% below last seen", route, priceStr, r.LastMinuteDiscountPercent),
+			)
+		}
+		return
+	}
 
 	// Below-threshold alert.
 	if r.BelowGoal {
@@ -102,6 +118,16 @@ func (n *Notifier) Notify(r CheckResult) {
 		strings.ToUpper(r.Watch.Type[:1])+r.Watch.Type[1:],
 		route, priceStr, changeStr, lowest, advice,
 	)
+}
+
+func notifyRoute(w Watch) string {
+	if w.Type == "hotel" {
+		if w.HotelName != "" {
+			return w.HotelName
+		}
+		return w.Destination
+	}
+	return fmt.Sprintf("%s -> %s", w.Origin, w.Destination)
 }
 
 // notifyRoom prints a room availability check result.

@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/MikkoParkkola/trvl/internal/hotelarb"
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/points"
 	"github.com/spf13/cobra"
@@ -18,6 +20,8 @@ func pointsValueCmd() *cobra.Command {
 		program        string
 		listPrograms   bool
 		format         string
+		offers         []string
+		currency       string
 	)
 
 	cmd := &cobra.Command{
@@ -32,10 +36,33 @@ Examples:
   trvl points-value --cash 450 --points 60000 --program finnair-plus
   trvl points-value --cash 1200 --points 50000 --program ana-mileage-club
   trvl points-value --cash 300 --points 30000 --program world-of-hyatt --format json
+  trvl points-value --cash 300 --offer world-of-hyatt:12000 --offer hilton-honors:80000
   trvl points-value --list`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if listPrograms {
 				return printProgramList(format)
+			}
+			if len(offers) > 0 {
+				if cashPrice <= 0 {
+					return fmt.Errorf("--cash must be greater than 0")
+				}
+				parsedOffers, err := parsePointsOffers(offers)
+				if err != nil {
+					return err
+				}
+				result, err := hotelarb.ComparePointsArbitrage(hotelarb.PointsArbitrageInput{
+					CashPrice: cashPrice,
+					Currency:  currency,
+					Offers:    parsedOffers,
+				})
+				if err != nil {
+					return err
+				}
+				if format == "json" {
+					return models.FormatJSON(os.Stdout, result)
+				}
+				printPointsArbitrage(result)
+				return nil
 			}
 
 			if program == "" {
@@ -67,8 +94,82 @@ Examples:
 	cmd.Flags().StringVar(&program, "program", "", "Loyalty program slug (e.g. finnair-plus)")
 	cmd.Flags().BoolVar(&listPrograms, "list", false, "List all supported programs and their valuations")
 	cmd.Flags().StringVar(&format, "format", "table", "Output format: table, json")
+	cmd.Flags().StringArrayVar(&offers, "offer", nil, "Compare hotel points offer as program:points[:cash_fees]; repeat for multiple programs")
+	cmd.Flags().StringVar(&currency, "currency", "USD", "Currency label for hotel points arbitrage output")
 
 	return cmd
+}
+
+func parsePointsOffers(raw []string) ([]hotelarb.PointsOffer, error) {
+	offers := make([]hotelarb.PointsOffer, 0, len(raw))
+	for _, item := range raw {
+		parts := strings.Split(item, ":")
+		if len(parts) < 2 || len(parts) > 3 {
+			return nil, fmt.Errorf("offer %q must use program:points[:cash_fees]", item)
+		}
+		pointsRequired, err := parsePositiveInt(parts[1])
+		if err != nil {
+			return nil, fmt.Errorf("offer %q points: %w", item, err)
+		}
+		offer := hotelarb.PointsOffer{
+			Program:        parts[0],
+			PointsRequired: pointsRequired,
+		}
+		if len(parts) == 3 {
+			fees, err := parseNonNegativeFloat(parts[2])
+			if err != nil {
+				return nil, fmt.Errorf("offer %q cash fees: %w", item, err)
+			}
+			offer.CashFees = fees
+		}
+		offers = append(offers, offer)
+	}
+	return offers, nil
+}
+
+func parsePositiveInt(raw string) (int, error) {
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, err
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("must be greater than 0")
+	}
+	return value, nil
+}
+
+func parseNonNegativeFloat(raw string) (float64, error) {
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, err
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("must be non-negative")
+	}
+	return value, nil
+}
+
+func printPointsArbitrage(result *hotelarb.PointsArbitrageResult) {
+	models.Banner(os.Stdout, "✦", "Hotel Points Arbitrage",
+		fmt.Sprintf("Recommendation: %s", strings.ReplaceAll(string(result.Recommendation), "_", " ")),
+	)
+	fmt.Println()
+
+	headers := []string{"Program", "Points", "CPP", "Floor", "Cost", "Value"}
+	rows := make([][]string, 0, len(result.Offers))
+	for _, offer := range result.Offers {
+		rows = append(rows, []string{
+			offer.ProgramName,
+			formatPoints(offer.PointsRequired),
+			fmt.Sprintf("%.2f¢", offer.CentsPerPoint),
+			fmt.Sprintf("%.2f¢", offer.FloorCPP),
+			fmt.Sprintf("%.0f %s", offer.OpportunityCost, result.Currency),
+			fmt.Sprintf("%.0f %s", offer.SavingsVsCash, result.Currency),
+		})
+	}
+	models.FormatTable(os.Stdout, headers, rows)
+	fmt.Println()
+	models.Summary(os.Stdout, result.Reason)
 }
 
 // printRecommendation renders a single recommendation as a pretty table.

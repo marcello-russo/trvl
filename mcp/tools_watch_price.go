@@ -24,16 +24,18 @@ func watchPriceTool() ToolDef {
 		InputSchema: InputSchema{
 			Type: "object",
 			Properties: map[string]Property{
-				"type":        {Type: "string", Description: "Watch type: \"flight\" or \"hotel\""},
-				"origin":      {Type: "string", Description: "Origin airport IATA code (flights only, e.g. HEL)"},
-				"destination": {Type: "string", Description: "Destination airport IATA code (flights only, e.g. BCN)"},
-				"location":    {Type: "string", Description: "City or location name (hotels only, e.g. Barcelona)"},
-				"date":        {Type: "string", Description: "Departure date YYYY-MM-DD (flights) or check-in date (hotels, use check_in instead)"},
-				"return_date": {Type: "string", Description: "Return date YYYY-MM-DD for round-trip flights (optional)"},
-				"check_in":    {Type: "string", Description: "Hotel check-in date YYYY-MM-DD (hotels only)"},
-				"check_out":   {Type: "string", Description: "Hotel check-out date YYYY-MM-DD (hotels only)"},
-				"target_price": {Type: "number", Description: "Alert threshold: notify when price drops below this amount"},
-				"currency":    {Type: "string", Description: "Currency code (e.g. EUR, USD). Default: EUR"},
+				"type":                 {Type: "string", Description: "Watch type: \"flight\" or \"hotel\""},
+				"origin":               {Type: "string", Description: "Origin airport IATA code (flights only, e.g. HEL)"},
+				"destination":          {Type: "string", Description: "Destination airport IATA code (flights only, e.g. BCN)"},
+				"location":             {Type: "string", Description: "City or location name (hotels only, e.g. Barcelona)"},
+				"date":                 {Type: "string", Description: "Departure date YYYY-MM-DD (flights) or check-in date (hotels, use check_in instead)"},
+				"return_date":          {Type: "string", Description: "Return date YYYY-MM-DD for round-trip flights (optional)"},
+				"check_in":             {Type: "string", Description: "Hotel check-in date YYYY-MM-DD (hotels only)"},
+				"check_out":            {Type: "string", Description: "Hotel check-out date YYYY-MM-DD (hotels only)"},
+				"target_price":         {Type: "number", Description: "Alert threshold: notify when price drops below this amount"},
+				"currency":             {Type: "string", Description: "Currency code (e.g. EUR, USD). Default: EUR"},
+				"last_minute":          {Type: "boolean", Description: "Hotel watches only: notify when sub-48h availability is at least 25% below last seen price"},
+				"last_minute_drop_pct": {Type: "number", Description: "Hotel last-minute drop threshold percentage. Default: 25"},
 			},
 			Required: []string{"type", "target_price"},
 		},
@@ -79,9 +81,11 @@ func handleWatchPrice(_ context.Context, args map[string]any, _ ElicitFunc, _ Sa
 	}
 
 	w := watch.Watch{
-		Type:       watchType,
-		BelowPrice: targetPrice,
-		Currency:   currency,
+		Type:              watchType,
+		BelowPrice:        targetPrice,
+		Currency:          currency,
+		LastMinuteMode:    argBool(args, "last_minute", false),
+		LastMinuteDropPct: argFloat(args, "last_minute_drop_pct", 25),
 	}
 
 	switch watchType {
@@ -172,6 +176,9 @@ func handleWatchPrice(_ context.Context, args map[string]any, _ ElicitFunc, _ Sa
 		resp.Location = w.Destination
 		summary = fmt.Sprintf("Hotel watch %s created: %s (%s to %s). Alert when below %.0f %s.",
 			id, w.Destination, w.DepartFrom, w.DepartTo, targetPrice, currency)
+		if w.LastMinuteMode {
+			summary += fmt.Sprintf(" Last-minute mode enabled at %.0f%% below last seen price.", w.LastMinuteDropPct)
+		}
 	}
 	summary += " Use check_watches to re-check all active watches."
 
@@ -326,12 +333,12 @@ func checkWatchesTool() ToolDef {
 				"triggered": schemaArray(map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"id":           schemaString(),
-						"route":        schemaString(),
-						"target_price": schemaNum(),
+						"id":            schemaString(),
+						"route":         schemaString(),
+						"target_price":  schemaNum(),
 						"current_price": schemaNum(),
-						"price_drop":   schemaNum(),
-						"currency":     schemaString(),
+						"price_drop":    schemaNum(),
+						"currency":      schemaString(),
 					},
 				}),
 				"results": schemaArray(map[string]interface{}{

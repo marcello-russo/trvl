@@ -105,6 +105,10 @@ var Programs = []Program{
 		Slug: "world-of-hyatt", Name: "Hyatt World of Hyatt",
 		FloorCPP: 1.5, CeilingCPP: 2.5, Category: "hotel",
 	},
+	{
+		Slug: "wyndham-rewards", Name: "Wyndham Rewards",
+		FloorCPP: 0.8, CeilingCPP: 1.3, Category: "hotel",
+	},
 
 	// --- Transferable currencies ---
 	{
@@ -165,12 +169,15 @@ var TransferPartners = []TransferPartner{
 	{From: "chase-ur", To: "flying-blue", Ratio: 1.0},
 	{From: "chase-ur", To: "singapore-krisflyer", Ratio: 1.0},
 	{From: "chase-ur", To: "world-of-hyatt", Ratio: 1.0},
+	{From: "chase-ur", To: "ihg-rewards", Ratio: 1.0},
+	{From: "chase-ur", To: "marriott-bonvoy", Ratio: 1.0},
 	// Citi ThankYou transfers
 	{From: "citi-thankyou", To: "flying-blue", Ratio: 1.0},
 	{From: "citi-thankyou", To: "singapore-krisflyer", Ratio: 1.0},
 	{From: "citi-thankyou", To: "british-airways-avios", Ratio: 1.0},
 	{From: "citi-thankyou", To: "ana-mileage-club", Ratio: 1.0},
 	{From: "citi-thankyou", To: "cathay-asia-miles", Ratio: 1.0},
+	{From: "citi-thankyou", To: "wyndham-rewards", Ratio: 1.0},
 	// Capital One transfers
 	{From: "capital-one-miles", To: "flying-blue", Ratio: 1.0},
 	{From: "capital-one-miles", To: "british-airways-avios", Ratio: 1.0},

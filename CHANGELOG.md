@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **MIK-3087 hotel arbitrage engine** — `internal/hotelarb` now tracks active hotel holds in `~/.trvl/active_holds.json`, evaluates manual re-book decisions against fresh quotes, detects sub-48h last-minute hotel drops at 25%+ below last seen price, and compares hotel points offers against cash using conservative loyalty-program floor values.
+- **Hotel re-book CLI flow** — `trvl prices hold` saves a refundable reservation and `trvl prices rebook` fetches current provider prices (or accepts `--current-price`) to present a hold-current vs. manual re-book recommendation.
+- **Last-minute hotel watch mode** — `trvl watch add --type hotel --last-minute` and MCP `watch_price(last_minute=true)` surface sub-48h hotel drops through the existing watch notifier/webhook path.
+- **Hotel points arbitrage offers** — `trvl points-value --offer program:points[:cash_fees]` compares multiple hotel redemption options in one command; Wyndham Rewards was added to the hotel loyalty program table.
+
 ## [1.2.0] - 2026-05-02
 
 ### Added

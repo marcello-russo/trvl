@@ -423,6 +423,8 @@ Found 20 hotels:
 ```bash
 trvl hotels "Paris" --checkin 2026-07-01 --checkout 2026-07-05 --stars 4 --sort rating
 trvl prices "<hotel_id>" --checkin 2026-06-15 --checkout 2026-06-18
+trvl prices hold "<hotel_id>" --name "Hotel Lutetia Paris" --checkin 2026-06-15 --checkout 2026-06-18 --price 420 --currency EUR --refundable
+trvl prices rebook <hold_id> --min-savings 25
 trvl rooms "Hotel Lutetia Paris" --checkin 2026-06-15 --checkout 2026-06-18
 ```
 
@@ -523,6 +525,7 @@ Track flight and hotel prices over time. Get alerts when prices drop below a thr
 
 ```bash
 trvl watch add HEL BCN --depart 2026-07-01 --return 2026-07-08 --below 200
+trvl watch add Prague --type hotel --depart 2026-07-01 --return 2026-07-02 --last-minute
 trvl watch list                                       # Show all active watches
 trvl watch check                                      # Check current prices
 trvl watch daemon --every 6h                          # Keep checking on a schedule
@@ -599,6 +602,7 @@ Compare a redemption against paying cash, or list supported loyalty programs:
 
 ```bash
 trvl points-value --cash 450 --points 20000 --program finnair-plus
+trvl points-value --cash 300 --offer world-of-hyatt:12000 --offer hilton-honors:80000
 trvl points-value --list
 ```
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MikkoParkkola/trvl/internal/hotelarb"
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/points"
 )
@@ -96,6 +97,38 @@ func TestPointsValueCmd_SuccessJSON(t *testing.T) {
 	}
 	if rec.Verdict != "use points" {
 		t.Fatalf("verdict = %q, want use points", rec.Verdict)
+	}
+}
+
+func TestPointsValueCmd_HotelOfferArbitrageJSON(t *testing.T) {
+	stdout, stderr, err := captureTripCostOutput(t, func() error {
+		cmd := pointsValueCmd()
+		cmd.SilenceUsage = true
+		cmd.SilenceErrors = true
+		cmd.SetArgs([]string{
+			"--cash", "300",
+			"--offer", "world-of-hyatt:12000",
+			"--offer", "hilton-honors:80000",
+			"--format", "json",
+		})
+		return cmd.Execute()
+	})
+	if err != nil {
+		t.Fatalf("pointsValueCmd hotel offers failed: %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+
+	var result hotelarb.PointsArbitrageResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("unmarshal arbitrage result: %v\nstdout=%s", err, stdout)
+	}
+	if result.Recommendation != hotelarb.RecommendUsePoints {
+		t.Fatalf("recommendation = %q, want use_points", result.Recommendation)
+	}
+	if result.BestOffer.ProgramSlug != "world-of-hyatt" {
+		t.Fatalf("best program = %q, want world-of-hyatt", result.BestOffer.ProgramSlug)
 	}
 }
 

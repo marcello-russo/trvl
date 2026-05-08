@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/MikkoParkkola/trvl/internal/hotelarb"
 )
 
 // PriceChecker retrieves the current cheapest price for a route.
@@ -40,16 +42,18 @@ type RoomMatch struct {
 
 // CheckResult holds the outcome of checking a single watch.
 type CheckResult struct {
-	Watch        Watch
-	NewPrice     float64
-	Currency     string
-	PrevPrice    float64
-	BelowGoal    bool    // price dropped below threshold
-	PriceDrop    float64 // negative = price decreased (good)
-	CheapestDate string  // for range/route watches: which date was cheapest
-	RoomFound    bool    // room watch: a matching room was found
-	RoomMatches  []RoomMatch
-	Error        error
+	Watch                     Watch
+	NewPrice                  float64
+	Currency                  string
+	PrevPrice                 float64
+	BelowGoal                 bool    // price dropped below threshold
+	PriceDrop                 float64 // negative = price decreased (good)
+	CheapestDate              string  // for range/route watches: which date was cheapest
+	RoomFound                 bool    // room watch: a matching room was found
+	RoomMatches               []RoomMatch
+	LastMinuteDeal            bool
+	LastMinuteDiscountPercent float64
+	Error                     error
 }
 
 // CheckAll checks all watches using the provided price checker and records
@@ -128,6 +132,11 @@ func checkOneWithWebhookContext(checkCtx, webhookCtx context.Context, store *Sto
 			result.PriceDrop = price - w.LastPrice
 		}
 
+		if signal := detectWatchLastMinuteDeal(w, price); signal.Triggered {
+			result.LastMinuteDeal = true
+			result.LastMinuteDiscountPercent = signal.DiscountPercent
+		}
+
 		// Check threshold.
 		if w.BelowPrice > 0 && price <= w.BelowPrice {
 			result.BelowGoal = true
@@ -160,12 +169,29 @@ func checkOneWithWebhookContext(checkCtx, webhookCtx context.Context, store *Sto
 
 		// Fire webhook on price drop. The webhook context can outlive the check
 		// timeout, but should still be canceled when the scheduler stops.
-		if result.PriceDrop < 0 {
+		if result.PriceDrop < 0 || result.LastMinuteDeal {
 			go fireWebhook(webhookCtx, result)
 		}
 	}
 
 	return result
+}
+
+func detectWatchLastMinuteDeal(w Watch, currentPrice float64) hotelarb.LastMinuteSignal {
+	if !w.LastMinuteMode || w.Type != "hotel" {
+		return hotelarb.LastMinuteSignal{}
+	}
+	checkIn := w.DepartDate
+	if checkIn == "" {
+		checkIn = w.DepartFrom
+	}
+	parsed, err := time.Parse(watchDateLayout, checkIn)
+	if err != nil {
+		return hotelarb.LastMinuteSignal{}
+	}
+	return hotelarb.DetectLastMinuteDeal(time.Now(), parsed, w.LastPrice, currentPrice, hotelarb.LastMinuteOptions{
+		DropPercentThreshold: w.LastMinuteDropPct,
+	})
 }
 
 // checkRoom performs a room availability check for a room watch.
@@ -258,17 +284,19 @@ func normalizeCheckAndWebhookContexts(checkCtx, webhookCtx context.Context) (con
 
 // webhookPayload is the JSON body POSTed to a watch's WebhookURL on price drop.
 type webhookPayload struct {
-	WatchID     string  `json:"watch_id"`
-	Type        string  `json:"type"`
-	Origin      string  `json:"origin,omitempty"`
-	Destination string  `json:"destination,omitempty"`
-	HotelName   string  `json:"hotel_name,omitempty"`
-	NewPrice    float64 `json:"new_price"`
-	PrevPrice   float64 `json:"prev_price"`
-	Currency    string  `json:"currency"`
-	PriceDrop   float64 `json:"price_drop"`
-	BelowGoal   bool    `json:"below_goal"`
-	Timestamp   string  `json:"timestamp"`
+	WatchID                   string  `json:"watch_id"`
+	Type                      string  `json:"type"`
+	Origin                    string  `json:"origin,omitempty"`
+	Destination               string  `json:"destination,omitempty"`
+	HotelName                 string  `json:"hotel_name,omitempty"`
+	NewPrice                  float64 `json:"new_price"`
+	PrevPrice                 float64 `json:"prev_price"`
+	Currency                  string  `json:"currency"`
+	PriceDrop                 float64 `json:"price_drop"`
+	BelowGoal                 bool    `json:"below_goal"`
+	LastMinuteDeal            bool    `json:"last_minute_deal,omitempty"`
+	LastMinuteDiscountPercent float64 `json:"last_minute_discount_percent,omitempty"`
+	Timestamp                 string  `json:"timestamp"`
 }
 
 // fireWebhook sends a price-drop notification to the watch's WebhookURL.
@@ -279,17 +307,19 @@ func fireWebhook(ctx context.Context, r CheckResult) {
 	}
 
 	payload := webhookPayload{
-		WatchID:     r.Watch.ID,
-		Type:        r.Watch.Type,
-		Origin:      r.Watch.Origin,
-		Destination: r.Watch.Destination,
-		HotelName:   r.Watch.HotelName,
-		NewPrice:    r.NewPrice,
-		PrevPrice:   r.PrevPrice,
-		Currency:    r.Currency,
-		PriceDrop:   r.PriceDrop,
-		BelowGoal:   r.BelowGoal,
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		WatchID:                   r.Watch.ID,
+		Type:                      r.Watch.Type,
+		Origin:                    r.Watch.Origin,
+		Destination:               r.Watch.Destination,
+		HotelName:                 r.Watch.HotelName,
+		NewPrice:                  r.NewPrice,
+		PrevPrice:                 r.PrevPrice,
+		Currency:                  r.Currency,
+		PriceDrop:                 r.PriceDrop,
+		BelowGoal:                 r.BelowGoal,
+		LastMinuteDeal:            r.LastMinuteDeal,
+		LastMinuteDiscountPercent: r.LastMinuteDiscountPercent,
+		Timestamp:                 time.Now().UTC().Format(time.RFC3339),
 	}
 
 	body, err := json.Marshal(payload)

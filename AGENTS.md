@@ -318,6 +318,13 @@ Optional:
 {"hotel_id": "<from search_hotels>", "check_in": "2026-06-15", "check_out": "2026-06-18"}
 ```
 
+CLI re-book flow for existing refundable reservations:
+```bash
+trvl prices hold "<hotel_id>" --name "Hotel Name" --checkin 2026-06-15 --checkout 2026-06-18 --price 420 --currency EUR --refundable
+trvl prices rebook <hold_id> --min-savings 25
+```
+Stores active holds in `~/.trvl/active_holds.json`, fetches current provider prices, and returns a hold-current vs. manual re-book decision. It never cancels or books automatically.
+
 ### destination_info — Travel intelligence for any city
 ```json
 {"location": "Tokyo"}
@@ -383,6 +390,10 @@ Returns: visa status (`visa-free`, `visa-required`, `visa-on-arrival`, `e-visa`,
 {"cash_price": 450, "points_required": 20000, "program": "finnair-plus"}
 ```
 Returns: effective cents-per-point, floor/ceiling valuation for the program, verdict (`use points`, `pay cash`, or `borderline`), and explanation.
+CLI hotel points arbitrage can compare multiple offers:
+```bash
+trvl points-value --cash 300 --offer world-of-hyatt:12000 --offer hilton-honors:80000
+```
 
 ### search_awards — Rank cross-program award sweet spots
 ```json
@@ -443,7 +454,7 @@ Searches 20+ providers in parallel including FlixBus, RegioJet, Eurostar, DB, NS
 ```json
 {"type": "flight", "origin": "HEL", "destination": "BCN", "date": "2026-07-01", "target_price": 89, "currency": "EUR"}
 ```
-Stores watch in `~/.trvl/watches.json`. Use `check_watches` to re-check prices, `list_watches` to see all active watches.
+Stores watch in `~/.trvl/watches.json`. Use `check_watches` to re-check prices, `list_watches` to see all active watches. Hotel watches can set `last_minute: true` and `last_minute_drop_pct` (default 25) to alert when sub-48h availability drops materially below the last seen price.
 
 ### provider_health — Provider status dashboard
 ```json

@@ -44,14 +44,16 @@ Examples:
 
 func watchAddCmd() *cobra.Command {
 	var (
-		departDate string
-		returnDate string
-		departFrom string
-		departTo   string
-		belowPrice float64
-		currency   string
-		watchType  string
-		webhookURL string
+		departDate     string
+		returnDate     string
+		departFrom     string
+		departTo       string
+		belowPrice     float64
+		currency       string
+		watchType      string
+		webhookURL     string
+		lastMinute     bool
+		lastMinuteDrop float64
 	)
 
 	cmd := &cobra.Command{
@@ -90,16 +92,18 @@ Examples:
 			}
 
 			w := watch.Watch{
-				Type:        watchType,
-				Origin:      origin,
-				Destination: destination,
-				DepartDate:  departDate,
-				ReturnDate:  returnDate,
-				DepartFrom:  departFrom,
-				DepartTo:    departTo,
-				BelowPrice:  belowPrice,
-				Currency:    currency,
-				WebhookURL:  webhookURL,
+				Type:              watchType,
+				Origin:            origin,
+				Destination:       destination,
+				DepartDate:        departDate,
+				ReturnDate:        returnDate,
+				DepartFrom:        departFrom,
+				DepartTo:          departTo,
+				BelowPrice:        belowPrice,
+				Currency:          currency,
+				WebhookURL:        webhookURL,
+				LastMinuteMode:    lastMinute,
+				LastMinuteDropPct: lastMinuteDrop,
 			}
 
 			id, err := store.Add(w)
@@ -125,6 +129,9 @@ Examples:
 			if w.BelowPrice > 0 {
 				fmt.Printf(" [alert below %.0f %s]", w.BelowPrice, w.Currency)
 			}
+			if w.LastMinuteMode {
+				fmt.Printf(" [last-minute %.0f%% drop]", w.LastMinuteDropPct)
+			}
 			fmt.Println()
 			return nil
 		},
@@ -138,6 +145,8 @@ Examples:
 	cmd.Flags().StringVar(&currency, "currency", "", "Currency for price alerts (e.g. EUR). Empty = API default")
 	cmd.Flags().StringVar(&watchType, "type", "flight", "Watch type: flight or hotel")
 	cmd.Flags().StringVar(&webhookURL, "webhook", "", "URL to POST JSON payload on price drop")
+	cmd.Flags().BoolVar(&lastMinute, "last-minute", false, "Hotel watches: alert when sub-48h availability is materially below last seen price")
+	cmd.Flags().Float64Var(&lastMinuteDrop, "last-minute-drop", 25, "Hotel watches: percent drop from last seen price required for last-minute alert")
 	// --depart is optional: route watches monitor next 60 days without specific dates
 
 	return cmd
