@@ -1,0 +1,27 @@
+{
+  "name": "trvl",
+  "version": "0.3.0",
+  "description": "Claude Code travel companion bundling the trvl MCP server, trip planning skills, price watches, destination research, and a multi-leg trip coordinator.",
+  "author": {
+    "name": "Mikko Parkkola",
+    "url": "https://github.com/MikkoParkkola"
+  },
+  "homepage": "https://github.com/MikkoParkkola/trvl/tree/main/plugin",
+  "repository": "https://github.com/MikkoParkkola/trvl",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "keywords": [
+    "travel",
+    "mcp",
+    "flights",
+    "hotels",
+    "trip-planning",
+    "price-watch",
+    "destination-research"
+  ],
+  "skills": "./skills/",
+  "commands": "./commands/",
+  "agents": [
+    "./agents/trip-coordinator.md"
+  ],
+  "mcpServers": "./.mcp.json"
+}
