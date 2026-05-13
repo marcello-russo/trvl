@@ -83,6 +83,11 @@ func registerTools(s *Server) {
 		searchHiddenCityTool(),
 		searchAwardsTool(),
 	}
+	s.toolDefs = make(map[string]ToolDef, len(legacyTools)+1)
+	for _, tool := range legacyTools {
+		s.toolDefs[tool.Name] = tool
+	}
+	s.toolDefs["travel"] = travelTool()
 	s.tools = advertisedToolSurface(legacyTools)
 	s.handlers["travel"] = s.handleTravel
 	s.handlers["search_flights"] = s.wrapHandler("search_flights", handleSearchFlights)

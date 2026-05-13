@@ -520,6 +520,7 @@ Runs 37 detectors in parallel: hidden-city, throwaway, positioning, back-to-back
 - **No results**: Google may rate-limit. Wait 60 seconds and retry.
 - **Wrong currency**: Normal — currency follows IP geolocation.
 - **MCP tools not showing**: Restart Claude Code / Claude Desktop after Step 2.
+- **HTTP / remote MCP**: `trvl mcp --http` binds to `127.0.0.1` by default and requires bearer auth. Use `TRVL_MCP_TOKEN` for read/write local gateway access, `TRVL_MCP_READ_TOKEN` / `TRVL_MCP_WRITE_TOKEN` for scoped static tokens, or OAuth introspection flags/env vars when an OAuth 2.1 gateway handles Authorization Code + PKCE. Remote exposure requires explicit `--host`.
 
 ## Source
 

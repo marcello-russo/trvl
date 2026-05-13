@@ -180,6 +180,7 @@ func TestToolAnnotations(t *testing.T) {
 		"build_profile":           true,
 		"add_booking":             true,
 		"watch_price":             true,
+		"check_watches":           true,
 		"watch_opportunities":     true,
 		"create_trip":             true,
 		"add_trip_leg":            true,

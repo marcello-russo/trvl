@@ -566,6 +566,7 @@ Offer 2-3 refinements: "Other dates?" · "Nearby airports?" · "Different hotel?
 - **"Calendar hole"** → `find_trip_window` with calendar busy-intervals → flight savings for free weeks.
 - **"Award sweet spot"** → `search_awards` with the user's MR / UR / Bilt / FB / VS / AS balances.
 - **"Provider audit"** → `provider_health` + `list_providers` to diagnose flaky upstream sources.
+- **"Remote MCP setup"** → `trvl mcp --http` stays loopback by default; remote exposure needs explicit `--host` plus bearer or OAuth introspection auth. Use `trvl:read` for read-only clients and `trvl:write` for local mutations.
 
 ---
 

@@ -358,7 +358,7 @@ func checkWatchesTool() ToolDef {
 		},
 		Annotations: &ToolAnnotations{
 			Title:          "Check Price Watches",
-			ReadOnlyHint:   true,
+			ReadOnlyHint:   false,
 			IdempotentHint: false,
 			OpenWorldHint:  true,
 		},

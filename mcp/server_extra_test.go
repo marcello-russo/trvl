@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -62,6 +63,149 @@ func TestHTTPHandler_POST_RequiresBearerTokenWhenConfigured(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status with token = %d, want %d", rr.Code, http.StatusOK)
 	}
+}
+
+func TestHTTPHandler_POST_ReadTokenDeniesMutatingTool(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	hs := NewHTTPServerWithOptions(HTTPServerOptions{
+		Port:       0,
+		ReadToken:  "read-token",
+		WriteToken: "write-token",
+	})
+
+	resp, status := postHTTPToolCall(t, hs, "read-token", "update_preferences", map[string]any{
+		"display_currency": "EUR",
+	})
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200 JSON-RPC permission error", status)
+	}
+	if resp.Error == nil {
+		t.Fatalf("expected permission error, got result %#v", resp.Result)
+	}
+	if resp.Error.Code != -32001 {
+		t.Fatalf("error code = %d, want -32001", resp.Error.Code)
+	}
+	if !strings.Contains(resp.Error.Message, "requires trvl:write") {
+		t.Fatalf("error message = %q, want write-scope denial", resp.Error.Message)
+	}
+}
+
+func TestHTTPHandler_POST_WriteTokenAllowsMutatingTool(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	hs := NewHTTPServerWithOptions(HTTPServerOptions{
+		Port:       0,
+		ReadToken:  "read-token",
+		WriteToken: "write-token",
+	})
+
+	resp, status := postHTTPToolCall(t, hs, "write-token", "update_preferences", map[string]any{
+		"display_currency": "EUR",
+	})
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", status)
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+}
+
+func TestHTTPHandler_POST_ReadTokenAllowsReadOnlyTravelRoute(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	hs := NewHTTPServerWithOptions(HTTPServerOptions{
+		Port:      0,
+		ReadToken: "read-token",
+	})
+
+	resp, status := postHTTPToolCall(t, hs, "read-token", "travel", map[string]any{
+		"intent": "get_preferences",
+	})
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", status)
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+}
+
+func TestHTTPHandler_POST_OAuthIntrospectionScopes(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	introspection := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if gotUser, gotPass, ok := r.BasicAuth(); !ok || gotUser != "client-id" || gotPass != "client-secret" {
+			t.Fatalf("BasicAuth = %q/%q/%v, want configured client credentials", gotUser, gotPass, ok)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		token := r.Form.Get("token")
+		w.Header().Set("Content-Type", "application/json")
+		switch token {
+		case "oauth-read":
+			_, _ = fmt.Fprint(w, `{"active":true,"sub":"reader","aud":"trvl-mcp","scope":"trvl:read"}`)
+		case "oauth-write":
+			_, _ = fmt.Fprint(w, `{"active":true,"sub":"writer","aud":"trvl-mcp","scope":"trvl:read trvl:write"}`)
+		default:
+			_, _ = fmt.Fprint(w, `{"active":false}`)
+		}
+	}))
+	defer introspection.Close()
+
+	hs := NewHTTPServerWithOptions(HTTPServerOptions{
+		Port:                  0,
+		OAuthIntrospectionURL: introspection.URL,
+		OAuthClientID:         "client-id",
+		OAuthClientSecret:     "client-secret",
+		OAuthAudience:         "trvl-mcp",
+	})
+
+	readResp, status := postHTTPToolCall(t, hs, "oauth-read", "get_preferences", nil)
+	if status != http.StatusOK || readResp.Error != nil {
+		t.Fatalf("read token status=%d error=%+v", status, readResp.Error)
+	}
+
+	deniedResp, status := postHTTPToolCall(t, hs, "oauth-read", "update_preferences", map[string]any{"display_currency": "EUR"})
+	if status != http.StatusOK {
+		t.Fatalf("denied status = %d, want 200 JSON-RPC error", status)
+	}
+	if deniedResp.Error == nil || !strings.Contains(deniedResp.Error.Message, "requires trvl:write") {
+		t.Fatalf("denied error = %+v, want write-scope denial", deniedResp.Error)
+	}
+
+	writeResp, status := postHTTPToolCall(t, hs, "oauth-write", "update_preferences", map[string]any{"display_currency": "EUR"})
+	if status != http.StatusOK || writeResp.Error != nil {
+		t.Fatalf("write token status=%d error=%+v", status, writeResp.Error)
+	}
+
+	inactiveResp, inactiveStatus := postHTTPToolCall(t, hs, "inactive", "get_preferences", nil)
+	if inactiveStatus != http.StatusUnauthorized {
+		t.Fatalf("inactive status = %d, want 401; resp=%+v", inactiveStatus, inactiveResp)
+	}
+}
+
+func postHTTPToolCall(t *testing.T, hs *HTTPServer, token, name string, args map[string]any) (Response, int) {
+	t.Helper()
+	params := ToolCallParams{Name: name, Arguments: args}
+	paramsJSON, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	req := Request{JSONRPC: "2.0", ID: float64(1), Method: "tools/call", Params: paramsJSON}
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	rr := httptest.NewRecorder()
+	httpReq := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+	if token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+token)
+	}
+	hs.handleMCP(rr, httpReq)
+	var resp Response
+	if rr.Body.Len() > 0 && strings.Contains(rr.Header().Get("Content-Type"), "application/json") {
+		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal response body %q: %v", rr.Body.String(), err)
+		}
+	}
+	return resp, rr.Code
 }
 
 func TestHTTPHandler_POST_ToolsList(t *testing.T) {
