@@ -1,11 +1,14 @@
 ---
 name: trvl
-description: "AI Travel Agent — flights, hotels, buses, trains, ferries, night trains, restaurants, price tracking, destinations, hacks, visas, points/award redemptions, airport lounges, traveller profile. Searches Google Flights/Hotels, Skiplagged, Kiwi, AFKLM Offers v3, Trivago, Airbnb, Booking.com, Hostelworld, Ferryhopper, FlixBus, RegioJet, Eurostar/Snap, Deutsche Bahn, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Snälltåget, Tallink, Viking Line, Eckerö Line, Finnlines, Stena Line, DFDS in real-time. 1 smart MCP tool, 63 compatibility aliases, 37 hack detectors. No API keys required by default."
+description: "AI Travel Agent — flights, hotels, rental cars, buses, trains, ferries, night trains, restaurants, price tracking, destinations, hacks, visas, points/award redemptions, airport lounges, traveller profile. Searches Google Flights/Hotels, Skiplagged, Kiwi, AFKLM Offers v3, Trivago, Airbnb, Booking.com, Hostelworld, Skyscanner Car Hire when configured, Ferryhopper, FlixBus, RegioJet, Eurostar/Snap, Deutsche Bahn, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Snälltåget, Tallink, Viking Line, Eckerö Line, Finnlines, Stena Line, DFDS in real-time. 1 smart MCP tool, 64 compatibility aliases, 37 hack detectors. No API keys required for core flight/hotel/ground search."
 triggers:
   - flight
   - flights
   - hotel
   - hotels
+  - rental car
+  - rental cars
+  - car rental
   - travel
   - trip
   - vacation
@@ -56,7 +59,7 @@ allowed-tools:
 
 # trvl — AI Travel Agent
 
-> **1 smart MCP tool, 63 compatibility aliases, 50 CLI commands, 37 hack detectors, 21 providers.** Single-binary travel agent for any AI assistant. No API keys required by default.
+> **1 smart MCP tool, 64 compatibility aliases, 51 CLI commands, 37 hack detectors, 22 providers.** Single-binary travel agent for any AI assistant. No API keys required for core flight/hotel/ground search.
 
 ## LOAD PROFILE — ALWAYS FIRST
 
@@ -74,12 +77,12 @@ From? · To? · When (date/window)? · Flex? · Travelers? · Budget? · Carry-o
 
 - Native MCP: prefer `mcp__trvl__travel` when the compact schema is loaded.
 - Gateway: prefer `mcp__gateway__gateway_invoke` with `server="trvl"` and `tool="travel"`, passing `query`, `intent`, `action`, and `params`.
-- Compatibility aliases: exact names such as `search_flights`, `search_hotels`, `search_ground`, `watch_price`, and `update_preferences` still work when a workflow or older client names them.
+- Compatibility aliases: exact names such as `search_flights`, `search_hotels`, `search_cars`, `search_ground`, `watch_price`, and `update_preferences` still work when a workflow or older client names them.
 - Discovery: `mcp__gateway__gateway_search_tools` only when uncertain about availability/schema.
 
 ---
 
-## CORE TOOL ROUTING (primary `travel` tool + 63 compatibility aliases)
+## CORE TOOL ROUTING (primary `travel` tool + 64 compatibility aliases)
 
 Use `travel` for new calls. Put the target family or exact alias in `intent`,
 state-changing verbs in `action`, and the old tool arguments in `params`.
@@ -87,11 +90,12 @@ The full compatibility surface is below.
 
 | Tool | Use |
 |---|---|
-| `travel` | Primary smart router for flights, hotels, ground, trips, watches, preferences, providers |
+| `travel` | Primary smart router for flights, hotels, cars, ground, trips, watches, preferences, providers |
 | `search_flights` | Flights via Google Flights + Kiwi + Skiplagged merge |
 | `search_dates` | Cheapest-by-date across a range |
 | `search_hotels` | Multi-provider hotel search |
 | `search_hotels_with_details` | Search + top-N room and amenity enrichment |
+| `search_cars` | Rental car offers; returns setup-aware provider statuses when optional credentials are missing |
 | `search_route` | Multi-modal: flights + Bus/train/ferry (20 providers) |
 | `search_ground` | Bus/train/ferry (20 providers) |
 | `plan_trip` | Flights + hotels in one parallel search |
@@ -102,7 +106,7 @@ The full compatibility surface is below.
 
 ---
 
-## COMPATIBILITY SURFACE — ALL 63 ALIASES
+## COMPATIBILITY SURFACE — ALL 64 ALIASES
 
 ### Flights (12)
 
@@ -133,13 +137,14 @@ The full compatibility surface is below.
 | `watch_room_availability` | Monitor specific property availability over time | `hotel_name`, `check_in`, `check_out` |
 | `detect_accommodation_hacks` | Split a long stay across 2-3 properties (€15/move, ≥€50 + 15% saved threshold) | `city`, `check_in`, `check_out`, `max_split`, `guests`, `currency` |
 
-### Ground & multimodal (4)
+### Ground, cars & multimodal (5)
 
 | Tool | Use | Headline params |
 |---|---|---|
 | `search_ground` | Buses, trains, ferries via 20+ providers (FlixBus, RegioJet, Eurostar/Snap, DB, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Tallink, Viking, Eckerö, Finnlines, Stena, DFDS, Ferryhopper, …) | `origin`, `destination`, `date`, `currency`, `prefer`, `avoid`, `max_transfers`, `arrive_by`, `depart_after`, `max_price`, `sort` |
 | `search_route` | Pareto-optimal multi-modal itineraries combining flights/trains/buses/ferries through hub cities | `origin`, `destination`, `date`, `prefer`, `avoid`, `arrive_by`, `depart_after`, `max_transfers`, `max_price`, `sort`, `allow_browser_fallbacks` |
 | `search_airport_transfers` | Airport ↔ city transfers + taxi estimates | `airport_code`, `destination`, `date`, `provider` |
+| `search_cars` | Rental cars via optional Skyscanner Car Hire; missing credentials return typed `provider_statuses`, not fake prices | `pickup_location`, `dropoff_location`, `pickup_date`, `dropoff_date`, `pickup_time`, `dropoff_time`, `currency`, `passengers`, `driver_age`, `vehicle_class`, `max_price`, `provider` |
 | `optimize_multi_city` | Cheapest routing across multiple cities | `home_airport`, `cities`, `depart_date` |
 
 ### Destinations & context (8)

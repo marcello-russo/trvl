@@ -32,6 +32,6 @@ Type "# booking: https://www.google.com/travel/flights?q=Flights+to+London+from+
 Enter
 Sleep 1s
 
-Type "# 1 smart MCP tool · 63 aliases · 50 CLI commands · 21 providers · No API keys"
+Type "# 1 smart MCP tool · 64 aliases · 51 CLI commands · 22 providers · No API keys for core search"
 Enter
 Sleep 2s

@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-PolyForm%20NC%201.0-blue)](LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/MikkoParkkola/trvl.svg)](https://pkg.go.dev/github.com/MikkoParkkola/trvl)
 [![MCP](https://img.shields.io/badge/MCP-2025--11--25-blue)](https://modelcontextprotocol.io)
-[![Providers](https://img.shields.io/badge/providers-21-brightgreen)](https://github.com/MikkoParkkola/trvl#providers)
+[![Providers](https://img.shields.io/badge/providers-22-brightgreen)](https://github.com/MikkoParkkola/trvl#providers)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/MikkoParkkola/trvl)](https://go.dev/)
 [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_MCP-0078d4?logo=visualstudiocode)](https://insiders.vscode.dev/redirect/mcp/install?name=trvl&config=%7B%22command%22%3A%22trvl%22%2C%22args%22%3A%5B%22mcp%22%5D%7D)
 [![Install in Cursor](https://img.shields.io/badge/Cursor-Install_MCP-black?logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=trvl&config=%7B%22command%22%3A%22trvl%22%2C%22args%22%3A%5B%22mcp%22%5D%7D)
@@ -16,9 +16,9 @@
 
 Asciinema source: [`demo.cast`](demo.cast)
 
-> **The canonical travel MCP for AI assistants. 1 smart tool. 63 compatibility aliases. 21 providers. Zero API keys. One binary.**
+> **The canonical travel MCP for AI assistants. 1 smart tool. 64 compatibility aliases. 22 providers. Zero API keys for core search. One binary.**
 >
-> Gives Claude, Cursor, Windsurf, Codex, and any MCP-compatible AI 1 smart MCP tool for your AI assistant — the `travel` router — with 63 compatibility aliases for flights, hotels, trains, buses, ferries, price alerts, award sweet spots, weather, baggage, lounges, and destination intel. Free. API-first. Also works as a standalone CLI with 50 commands.
+> Gives Claude, Cursor, Windsurf, Codex, and any MCP-compatible AI 1 smart MCP tool for your AI assistant — the `travel` router — with 64 compatibility aliases for flights, hotels, rental cars, trains, buses, ferries, price alerts, award sweet spots, weather, baggage, lounges, and destination intel. Free. API-first. Also works as a standalone CLI with 51 commands.
 
 **For**: AI-assistant users who book ≥4 trips/yr · AI-app builders integrating travel intent · devs shopping MCP registries.
 **Not for**: humans booking via a website (use Google Flights) · travel-agency SaaS shoppers (we are not a hosted product).
@@ -70,7 +70,7 @@ Find 3+ star hotels within 5 km of ExCeL London for July 1-4, 2026 for two guest
 Create a mistake-fare watch for HEL -> BCN, July 1-8, 2026, and alert me if it drops below EUR 90.
 ```
 
-trvl is an [MCP server](https://modelcontextprotocol.io/) + CLI that gives Claude, Cursor, Windsurf, and any MCP-compatible AI assistant direct access to Google Flights, Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld, Ferryhopper, and European ground transport data. It searches, optimizes, and applies travel hacks automatically — no personal API keys required, no monthly fees, API-first by default, with optional browser-assisted fallbacks only for a few protected providers.
+trvl is an [MCP server](https://modelcontextprotocol.io/) + CLI that gives Claude, Cursor, Windsurf, and any MCP-compatible AI assistant direct access to Google Flights, Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld, Ferryhopper, European ground transport data, and optional car-rental providers. It searches, optimizes, and applies travel hacks automatically — no personal API keys required for core flight/hotel/ground search, no monthly fees, API-first by default, with optional browser-assisted fallbacks only for a few protected providers.
 
 ## Setup
 
@@ -157,7 +157,7 @@ The profile makes every subsequent search smarter — it skips questions it alre
 
 ### 5. Ask your AI to search
 
-That's it. Your AI assistant now has 1 smart travel tool available. The old 63 tool names remain callable as compatibility aliases, and `TRVL_MCP_TOOL_MODE=legacy` restores the old advertised list for clients that require it. Just ask naturally:
+That's it. Your AI assistant now has 1 smart travel tool available. The old 64 tool names remain callable as compatibility aliases, and `TRVL_MCP_TOOL_MODE=legacy` restores the old advertised list for clients that require it. Just ask naturally:
 
 - *"Search flights from JFK to Tokyo on July 1st, business class"*
 - *"Find hotels in Paris for July 1-5, at least 4 stars"*
@@ -168,6 +168,7 @@ That's it. Your AI assistant now has 1 smart travel tool available. The old 63 t
 - *"Plan a trip: Helsinki -> Barcelona -> Rome -> Paris, cheapest routing"*
 - *"Search buses from Prague to Krakow on May 3rd"*
 - *"Compare train and bus prices Prague to Vienna"*
+- *"Search rental cars at HEL from July 1-4 for three travellers"*
 - *"Search flights from Amsterdam, Eindhoven, or Antwerp to Helsinki or Tallinn"*
 - *"Show me travel deals from Helsinki under €400"*
 - *"Alert me when flights to Tokyo drop below €500"*
@@ -195,6 +196,7 @@ That's it. Your AI assistant now has 1 smart travel tool available. The old 63 t
 | **local_events** | Find events during your trip dates | Concerts, festivals, exhibitions |
 | **search_ground** | Search buses, trains and ferries (20 providers, API-first with optional browser fallbacks) | Prague -> Vienna, May 3rd, trains only |
 | **search_airport_transfers** | Search airport-to-hotel or airport-to-city ground transport, plus taxi estimates | CDG -> Hotel Lutetia Paris, after 14:30 |
+| **search_cars** | Search rental cars with provider statuses when optional credentials are missing | HEL, Jul 1-4, compact |
 | **search_restaurants** | Find restaurants near a location (Google Maps) | Barcelona, italian cuisine |
 | **search_deals** | Travel deals from 4 RSS feeds (error fares, flash sales) | Deals from HEL under EUR 400 |
 | **plan_trip** | Plan a complete trip — flights + hotel in one parallel search | AMS→PRG, Jun 15–18, EUR |
@@ -262,6 +264,18 @@ That's it. Your AI assistant now has 1 smart travel tool available. The old 63 t
 | Max price | `max_price` | Currency units — client-side |
 | Provider | `provider` | Restrict to one provider (e.g. `flixbus`, `db`, `regiojet`) |
 
+### Rental Car Filters (`search_cars`)
+
+| Filter | Parameter | Notes |
+|--------|-----------|-------|
+| Dropoff location | `dropoff_location` | Defaults to `pickup_location` |
+| Pickup/dropoff time | `pickup_time` / `dropoff_time` | Local `HH:MM`, default `10:00` |
+| Traveller count | `passengers` | Defaults from profile companions + user where available |
+| Driver age | `driver_age` | Default 30 |
+| Vehicle class | `vehicle_class` | `economy`, `compact`, `SUV`, `van`, etc. |
+| Max price | `max_price` | Total rental price filter |
+| Provider | `provider` | `skyscanner` when `SKYSCANNER_API_KEY` is configured; otherwise a typed setup status is returned |
+
 > **Unique feature:** The `checked_bags` filter on `search_flights` directly sets the checked-bags slot in Google's internal `batchexecute` filter array — the same wire position as carry-on bags. Google's own Flights UI only exposes the carry-on filter; the checked-bag slot works server-side but is undocumented and not surfaced in the UI. trvl is the only client that exposes it.
 
 ### MCP Protocol Features (v2025-11-25)
@@ -270,7 +284,7 @@ That's it. Your AI assistant now has 1 smart travel tool available. The old 63 t
 |---------|---------|
 | **Structured content** | Typed JSON (`structuredContent`) alongside human-readable summaries |
 | **Content annotations** | `audience: ["user"]` for summaries, `audience: ["assistant"]` for data |
-| **Output schemas** | Full JSON Schema validation for the `travel` smart router and all 63 compatibility tool responses |
+| **Output schemas** | Full JSON Schema validation for the `travel` smart router and all 64 compatibility tool responses |
 | **Prompts** | `plan-trip`, `find-cheapest-dates`, `compare-hotels`, `where-should-i-go` |
 | **Resources** | Airport codes (50 major hubs), flight/hotel usage guides, price-watch subscriptions |
 | **Tool description orchestration** | `find_trip_window` instructs the LLM to fetch calendar data first, then pass busy intervals in — works on every MCP client. See [docs/MCP-ORCHESTRATION.md](docs/MCP-ORCHESTRATION.md) |
@@ -348,7 +362,7 @@ trvl flights AMS NRT 2026-09-15 --award
 
 ## Ground Transport Providers
 
-trvl searches 20 ground transport providers in parallel, covering most of Europe. Airport transfers add taxi estimates on top of that, so trvl exposes 21 transport providers overall:
+trvl searches 20 ground transport providers in parallel, covering most of Europe. Airport transfers add taxi estimates and rental cars add optional Skyscanner Car Hire, so trvl exposes 22 transport providers overall:
 
 | Provider | Protocol | Coverage | Starting price | Auth |
 |----------|----------|----------|----------------|------|
@@ -371,6 +385,15 @@ trvl searches 20 ground transport providers in parallel, covering most of Europe
 | **DFDS** | REST API | North Sea + Baltic (Kiel, Amsterdam, Newcastle, Copenhagen, …) | EUR 49+ | None |
 
 Two providers (NS, Digitransit/VR) use public API keys that are embedded in the binary — no signup or personal key is required from the user.
+
+## Rental Cars
+
+`search_cars` / `trvl cars` adds car rental comparison to the same trip-planning workflow. Car-rental APIs are usually partner-gated, so the default path is explicit: when `SKYSCANNER_API_KEY` is not configured, trvl returns a typed `provider_statuses` setup result instead of failing or pretending live prices exist.
+
+```bash
+trvl cars HEL 2026-07-01 2026-07-04 --currency EUR
+trvl cars "Helsinki Airport" 2026-07-01 2026-07-04 --passengers 3 --vehicle-class compact
+```
 
 ## How trvl Compares
 
@@ -413,7 +436,7 @@ See [Quick Setup step 3](#3-optional-teach-your-ai-about-trvl) above for AGENTS.
 
 ## CLI Usage
 
-trvl also works as a standalone CLI tool with 50 commands:
+trvl also works as a standalone CLI tool with 51 commands:
 
 All search commands accept `--currency <CODE>` (e.g. `--currency EUR`) to convert displayed prices. trvl detects the actual API currency and converts at the display layer — no hardcoded currencies.
 
@@ -709,10 +732,10 @@ The AI uses these to give you actionable recommendations: "Book here: [link]". N
 | | |
 |---|---|
 | **Binary** | Single static ~15MB for API-first flows. Optional protected-provider fallbacks may use local browser/python tooling. |
-| **Data** | Real-time from Google Flights + 5 hotel sources (Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld) + 20 ground providers (FlixBus, RegioJet, Eurostar, DB, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Snälltåget, Tallink, Viking Line, Eckerö Line, Finnlines, Stena Line, DFDS, Ferryhopper) + 5 free destination APIs |
-| **Auth** | No personal API keys required. Two providers (NS, Digitransit/VR) use public keys embedded in the binary. Optional browser/cookie fallbacks are available for protected providers when explicitly enabled. |
-| **MCP** | Full v2025-11-25 — 1 smart MCP tool, 63 compatibility aliases (incl. 4 profile aliases, 3 price watch aliases, provider health, award sweet-spot scanning), 7 prompts, resources, structured content, progress notifications, resource subscriptions, tool description orchestration |
-| **CLI** | 50 commands (+ 7 watch subcommands) with table/JSON output, color, shell completion |
+| **Data** | Real-time from Google Flights + 5 hotel sources (Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld) + 20 ground providers (FlixBus, RegioJet, Eurostar, DB, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Snälltåget, Tallink, Viking Line, Eckerö Line, Finnlines, Stena Line, DFDS, Ferryhopper) + optional Skyscanner Car Hire + 5 free destination APIs |
+| **Auth** | No personal API keys required for core flight/hotel/ground search. Two providers (NS, Digitransit/VR) use public keys embedded in the binary. Optional browser/cookie fallbacks and car-rental partner APIs are available when explicitly configured. |
+| **MCP** | Full v2025-11-25 — 1 smart MCP tool, 64 compatibility aliases (incl. rental cars, 4 profile aliases, 3 price watch aliases, provider health, award sweet-spot scanning), 7 prompts, resources, structured content, progress notifications, resource subscriptions, tool description orchestration |
+| **CLI** | 51 commands (+ 7 watch subcommands) with table/JSON output, color, shell completion |
 | **Booking links** | Every flight and hotel result includes a direct Google booking link |
 | **Travel hacks** | 37 detectors (throwaway, hidden-city, positioning, ferry, multi-modal, stopover, date-flex, error fare, back-to-back, rail competition, and more) |
 | **Personal profile** | Learns from your booking history (email parsing + LLM). Remembers FF status, luggage needs, favourite properties, departure preferences, travel hacks used, accommodation preferences, family composition. Pre-search interviews skip questions the profile already answers. |
@@ -743,7 +766,7 @@ trvl is part of a suite of MCP tools:
 | Tool | Description |
 |------|-------------|
 | [mcp-gateway](https://github.com/MikkoParkkola/mcp-gateway) | Universal MCP gateway — compact 12-15 tool surface replaces 100+ registrations |
-| **[trvl](https://github.com/MikkoParkkola/trvl)** | **AI travel agent — 1 smart MCP tool plus 63 compatibility aliases for flights, hotels, ground transport** |
+| **[trvl](https://github.com/MikkoParkkola/trvl)** | **AI travel agent — 1 smart MCP tool plus 64 compatibility aliases for flights, hotels, rental cars, ground transport** |
 | [nab](https://github.com/MikkoParkkola/nab) | Web content extraction — fetch any URL with cookies + anti-bot bypass |
 | [axterminator](https://github.com/MikkoParkkola/axterminator) | macOS GUI automation — 35 MCP tools via Accessibility API |
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MikkoParkkola/trvl/internal/cars"
 	"github.com/MikkoParkkola/trvl/internal/ground"
 	"github.com/MikkoParkkola/trvl/internal/trip"
 	trvlmcp "github.com/MikkoParkkola/trvl/mcp"
@@ -21,7 +22,7 @@ import (
 // The dynamic count from rootCmd.Commands() includes all cobra-registered
 // commands, but marketing materials only count functional travel commands.
 // Current exclusions: version, providers (both are utility/meta commands).
-const cliCommandCountMarketed = 50
+const cliCommandCountMarketed = 51
 
 var readmeToolMarkers = []string{
 	"travel",
@@ -42,6 +43,7 @@ var readmeToolMarkers = []string{
 	"local_events",
 	"search_ground",
 	"search_airport_transfers",
+	"search_cars",
 	"search_restaurants",
 	"search_deals",
 	"plan_trip",
@@ -91,6 +93,9 @@ func marketedTransportProviderCount() int {
 		seen[provider] = struct{}{}
 	}
 	for _, provider := range trip.MarketedAdditionalProviderNames() {
+		seen[provider] = struct{}{}
+	}
+	for _, provider := range cars.MarketedProviderNames() {
 		seen[provider] = struct{}{}
 	}
 	return len(seen)
@@ -159,7 +164,7 @@ func TestPublicDocsAdvertiseCurrentCounts(t *testing.T) {
 				fmt.Sprintf("%d commands (+ %d watch subcommands)", cliCommandCount, watchSubcommandCount),
 				fmt.Sprintf("Full JSON Schema validation for the `travel` smart router and all %d compatibility tool responses", compatAliasCount),
 				"install the bundled skill that teaches Claude how to use trvl",
-				fmt.Sprintf("trvl searches %d ground transport providers in parallel, covering most of Europe. Airport transfers add taxi estimates on top of that, so trvl exposes %d transport providers overall:", groundProviderCount, totalProviderCount),
+				fmt.Sprintf("trvl searches %d ground transport providers in parallel, covering most of Europe. Airport transfers add taxi estimates and rental cars add optional Skyscanner Car Hire, so trvl exposes %d transport providers overall:", groundProviderCount, totalProviderCount),
 				fmt.Sprintf("Searches %d providers in parallel:", groundProviderCount),
 			},
 			forbidden: []string{
@@ -207,7 +212,7 @@ func TestPublicDocsAdvertiseCurrentCounts(t *testing.T) {
 		{
 			path: filepath.Join("..", "..", "demo.tape"),
 			required: []string{
-				fmt.Sprintf("# %d smart MCP tool · %d aliases · %d CLI commands · %d providers · No API keys", toolCount, compatAliasCount, cliCommandCount, totalProviderCount),
+				fmt.Sprintf("# %d smart MCP tool · %d aliases · %d CLI commands · %d providers · No API keys for core search", toolCount, compatAliasCount, cliCommandCount, totalProviderCount),
 			},
 			forbidden: []string{
 				"# 31 MCP tools · 31 CLI commands · 17 providers · No API keys",
