@@ -138,20 +138,11 @@ brews:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
     homepage: https://github.com/MikkoParkkola/trvl
-    description: "AI travel agent — 55 MCP tools for flights, hotels, ground transport, price alerts. Free, no API keys."
+    description: "AI travel agent: flights, hotels and transport via MCP, no API keys"
     license: "PolyForm-Noncommercial-1.0.0"
     install: |
       bin.install "trvl"
-      # Strip com.apple.quarantine that Homebrew applies to downloaded
-      # tarballs on macOS. Combined with the adhoc codesign identifier
-      # baked into the binary at release time (see .goreleaser.yaml
-      # builds.hooks.post), this prevents Gatekeeper from SIGKILLing
-      # trvl on first launch.
-      begin
-        system "xattr", "-dr", "com.apple.quarantine", "#{bin}/trvl"
-      rescue
-        # xattr is macOS-only; ignore on Linux brew.
-      end
+      system "xattr", "-dr", "com.apple.quarantine", "#{bin}/trvl" if OS.mac?
     test: |
       system "#{bin}/trvl", "version"
 
