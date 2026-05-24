@@ -39,6 +39,12 @@ type FlightResult struct {
 	CarryOnIncluded     *bool       `json:"carry_on_included,omitempty"`     // true if carry-on bag is included in price
 	CheckedBagsIncluded *int        `json:"checked_bags_included,omitempty"` // 0=not included, 1=one bag, 2=two bags
 	Emissions           int         `json:"emissions,omitempty"`             // estimated CO2 in grams; 0 if unavailable
+	// Sources lists every provider that returned this same physical itinerary
+	// (mirrors HotelResult). Populated by ResolveFlightSources. Headline Price
+	// is the cheapest across sources.
+	Sources        []PriceSource `json:"sources,omitempty"`
+	Savings        float64       `json:"savings,omitempty"`         // dearest source price - cheapest
+	CheapestSource string        `json:"cheapest_source,omitempty"` // provider name of cheapest source
 }
 
 // FlightSearchResult is the top-level response for a flight search.

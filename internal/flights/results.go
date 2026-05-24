@@ -17,6 +17,9 @@ func mergeFlightResults(googleFlights, kiwiFlights, skiplaggedFlights []models.F
 	merged = append(merged, kiwiFlights...)
 	merged = append(merged, skiplaggedFlights...)
 	merged = filterFlightResults(merged, opts)
+	// Collapse the same physical itinerary returned by multiple providers into
+	// one result carrying every provider as a PriceSource (cheapest headline).
+	merged = models.ResolveFlightSources(merged)
 	sortFlightResults(merged, opts.SortBy)
 	return merged
 }
