@@ -38,6 +38,11 @@ type SearchOptions struct {
 	Airlines   []string          // Restrict to these airline IATA codes
 	Adults     int               // Number of adult passengers (default: 1)
 
+	// DepartureFlexDays / ReturnFlexDays enable Kiwi's flexible-date search
+	// (cheapest within +/- N days). Range 0-3; values are clamped. 0 = exact.
+	DepartureFlexDays int
+	ReturnFlexDays    int
+
 	// Currency forces Google Flights to return prices in this currency by
 	// setting the gl= (geolocation) query parameter. When empty, no gl= is
 	// added and Google uses IP-based geolocation (which may return RUB, PLN,
