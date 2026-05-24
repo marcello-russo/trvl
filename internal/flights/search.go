@@ -173,7 +173,7 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 		statuses = append(statuses, models.ProviderStatus{
 			ID:     "google_flights",
 			Name:   "Google Flights",
-			Status: "error",
+			Status: models.ClassifyProviderError(googleErr),
 			Error:  googleErr.Error(),
 		})
 	}
@@ -188,7 +188,7 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 			statuses = append(statuses, models.ProviderStatus{
 				ID:     "kiwi",
 				Name:   "Kiwi",
-				Status: "error",
+				Status: models.ClassifyProviderError(kiwiErr),
 				Error:  kiwiErr.Error(),
 			})
 		} else {
@@ -221,7 +221,7 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 			statuses = append(statuses, models.ProviderStatus{
 				ID:     "skiplagged",
 				Name:   "Skiplagged",
-				Status: "error",
+				Status: models.ClassifyProviderError(err),
 				Error:  err.Error(),
 			})
 		} else if skiplaggedResult != nil {
@@ -252,6 +252,7 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 			TripType:         tripTypeForSearch(opts),
 			Flights:          mergedFlights,
 			ProviderStatuses: statuses,
+			Completeness:     models.ComputeCompleteness(statuses),
 		}, nil
 	}
 

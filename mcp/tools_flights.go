@@ -577,10 +577,20 @@ func flightSummary(result *models.FlightSearchResult, origin, dest string) strin
 		if result.Error != "" {
 			return fmt.Sprintf("Flight search from %s to %s failed: %s", origin, dest, result.Error)
 		}
+		// Evidence guard (MIK-4950): only claim a definitive "no flights"
+		// when every relevant provider was actually reached. If some timed
+		// out or failed, absence is not established — say so instead of lying.
+		if !result.Completeness.MayClaimExhaustive() {
+			return fmt.Sprintf("No flights returned from %s to %s yet. %s",
+				origin, dest, result.Completeness.IncompleteNote())
+		}
 		return fmt.Sprintf("No flights found from %s to %s.", origin, dest)
 	}
 
 	summary := fmt.Sprintf("Found %d flights from %s to %s.", result.Count, origin, dest)
+	if note := result.Completeness.IncompleteNote(); note != "" {
+		summary += " " + note
+	}
 
 	// Find cheapest.
 	cheapest := result.Flights[0]

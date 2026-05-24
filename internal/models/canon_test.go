@@ -13,15 +13,15 @@ func TestParseMoney(t *testing.T) {
 	}{
 		{"120", "EUR", 120, "EUR"},
 		{"120.50", "USD", 120.50, "USD"},
-		{"120,50", "EUR", 120.50, "EUR"},       // EU decimal comma
-		{"1.200,50", "EUR", 1200.50, "EUR"},    // EU thousands + decimal
-		{"1,200.00", "USD", 1200.00, "USD"},    // US thousands + decimal
-		{"€120", "", 120, "EUR"},               // symbol-derived currency
-		{"$1,299", "", 1299, "USD"},            // symbol + thousands
-		{"£99.99", "", 99.99, "GBP"},           // pound
-		{"", "EUR", 0, "EUR"},                  // empty amount
-		{"abc", "USD", 0, "USD"},               // garbage
-		{"120", "eur", 120, "EUR"},             // lowercase currency normalized
+		{"120,50", "EUR", 120.50, "EUR"},    // EU decimal comma
+		{"1.200,50", "EUR", 1200.50, "EUR"}, // EU thousands + decimal
+		{"1,200.00", "USD", 1200.00, "USD"}, // US thousands + decimal
+		{"€120", "", 120, "EUR"},            // symbol-derived currency
+		{"$1,299", "", 1299, "USD"},         // symbol + thousands
+		{"£99.99", "", 99.99, "GBP"},        // pound
+		{"", "EUR", 0, "EUR"},               // empty amount
+		{"abc", "USD", 0, "USD"},            // garbage
+		{"120", "eur", 120, "EUR"},          // lowercase currency normalized
 	}
 	for _, c := range cases {
 		got := ParseMoney(c.amount, c.currency)
@@ -45,8 +45,8 @@ func TestParseTemporal(t *testing.T) {
 		{"2026-05-23", true},
 		{"23.05.2026 14:30", true},
 		{"23.05.2026", true},
-		{"1747999800", true},       // unix seconds
-		{"1747999800000", true},    // unix millis
+		{"1747999800", true},    // unix seconds
+		{"1747999800000", true}, // unix millis
 		{"", false},
 		{"not-a-date", false},
 	}

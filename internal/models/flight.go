@@ -55,7 +55,11 @@ type FlightSearchResult struct {
 	// an error its status is "ok" with Results=0; this is distinct from
 	// "error" or "skipped".
 	ProviderStatuses []ProviderStatus `json:"provider_statuses,omitempty"`
-	Error            string           `json:"error,omitempty"`
+	// Completeness is the composite evidence summary derived from
+	// ProviderStatuses. When State != "complete", callers MUST NOT claim
+	// "no flights found" — some providers timed out or failed.
+	Completeness Completeness `json:"completeness,omitempty"`
+	Error        string       `json:"error,omitempty"`
 }
 
 // DatePriceResult represents the cheapest price for a single departure date.
