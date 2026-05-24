@@ -105,13 +105,13 @@ func (c CabinClass) String() string {
 // ParseCabinClass converts a string to a CabinClass. Case-insensitive.
 func ParseCabinClass(s string) (CabinClass, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "economy", "e", "1":
+	case "economy", "e", "y", "1", "coach", "standard", "2nd", "eco", "economy class":
 		return Economy, nil
-	case "premium_economy", "premium-economy", "premiumeconomy", "pe", "2":
+	case "premium_economy", "premium-economy", "premiumeconomy", "premium economy", "premium", "pe", "w", "2":
 		return PremiumEconomy, nil
-	case "business", "b", "3":
+	case "business", "b", "c", "j", "biz", "business class", "3":
 		return Business, nil
-	case "first", "f", "4":
+	case "first", "f", "1st", "first class", "4":
 		return First, nil
 	default:
 		return Economy, fmt.Errorf("unknown cabin class: %q", s)
