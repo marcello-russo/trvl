@@ -385,6 +385,13 @@ func handleSearchFlights(ctx context.Context, args map[string]any, elicit Elicit
 					enrichedFlights[i].AllInCost = allIn
 					enrichedFlights[i].BagBreakdown = breakdown
 				}
+				// Refine the comparable price with the user's FF benefits +
+				// checked-bag preference (overrides the carry-on baseline set in
+				// the flights layer). MIK-4962.
+				if allIn > 0 {
+					enrichedFlights[i].ComparablePrice = allIn
+					enrichedFlights[i].ComparableBreakdown = breakdown
+				}
 			}
 
 			// Miles earning estimate per FF programme.
