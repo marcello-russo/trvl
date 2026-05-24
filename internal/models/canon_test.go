@@ -133,3 +133,23 @@ func TestParsePlace(t *testing.T) {
 		t.Errorf("ParsePlace fallthrough kind = %v", u.Kind)
 	}
 }
+
+func TestFormatProviderDate(t *testing.T) {
+	cases := []struct {
+		in, layout, want string
+		ok               bool
+	}{
+		{"2026-06-15", DateLayoutDMY, "15/06/2026", true},
+		{"2026-06-15T08:00:00Z", DateLayoutDMY, "15/06/2026", true},
+		{"2026-06-15", DateLayoutCompact, "20260615", true},
+		{"2026-06-15", DateLayoutDottedDMY, "15.06.2026", true},
+		{"15/06/2026", DateLayoutYMD, "2026-06-15", true},
+		{"garbage", DateLayoutDMY, "garbage", false},
+	}
+	for _, c := range cases {
+		got, ok := FormatProviderDate(c.in, c.layout)
+		if got != c.want || ok != c.ok {
+			t.Errorf("FormatProviderDate(%q,%q) = %q,%v want %q,%v", c.in, c.layout, got, ok, c.want, c.ok)
+		}
+	}
+}

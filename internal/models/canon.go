@@ -100,6 +100,7 @@ var temporalLayouts = []string{
 	"2006-01-02",
 	"02.01.2006 15:04",
 	"02.01.2006",
+	"02/01/2006",
 }
 
 // ParseTemporal normalizes a timestamp string from any supported provider format
@@ -228,4 +229,25 @@ func ParsePlace(s string) Place {
 		return Place{Kind: PlaceCity, Name: ResolveLocationName(t), City: ResolveLocationName(t)}
 	}
 	return Place{Kind: PlaceUnknown, Name: ResolveLocationName(t)}
+}
+
+// Provider wire-format date layouts. The outbound mirror of ParseTemporal:
+// canonical -> the string shape a given provider's API expects.
+const (
+	DateLayoutDMY       = "02/01/2006" // day/month/year (e.g. Kiwi)
+	DateLayoutYMD       = "2006-01-02" // ISO date (most providers)
+	DateLayoutCompact   = "20060102"   // compact (e.g. some rail APIs)
+	DateLayoutDottedDMY = "02.01.2006" // dotted EU (e.g. DB/OEBB)
+)
+
+// FormatProviderDate parses a canonical date/time string (any format ParseTemporal
+// accepts) and re-emits it in the requested provider layout. Returns the input
+// trimmed and ok=false when it cannot be parsed, so callers can decide whether to
+// pass through or error.
+func FormatProviderDate(canonical, layout string) (string, bool) {
+	t, ok := ParseTemporal(canonical)
+	if !ok {
+		return strings.TrimSpace(canonical), false
+	}
+	return t.Format(layout), true
 }
