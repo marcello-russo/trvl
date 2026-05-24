@@ -45,6 +45,20 @@ type FlightResult struct {
 	Sources        []PriceSource `json:"sources,omitempty"`
 	Savings        float64       `json:"savings,omitempty"`         // dearest source price - cheapest
 	CheapestSource string        `json:"cheapest_source,omitempty"` // provider name of cheapest source
+	// ComparablePrice is the all-in cost (base fare + unavoidable bag fees minus
+	// applicable frequent-flyer benefits), in the same currency as Price. It is
+	// what ranking should use so low-cost-carrier base fares are not unfairly
+	// favoured over fares that already include a bag. 0 = not computed (use Price).
+	ComparablePrice     float64 `json:"comparable_price,omitempty"`
+	ComparableBreakdown string  `json:"comparable_breakdown,omitempty"`
+}
+
+// PriceForRanking returns ComparablePrice when computed, else the base Price.
+func (f FlightResult) PriceForRanking() float64 {
+	if f.ComparablePrice > 0 {
+		return f.ComparablePrice
+	}
+	return f.Price
 }
 
 // FlightSearchResult is the top-level response for a flight search.

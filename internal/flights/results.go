@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MikkoParkkola/trvl/internal/baggage"
 	"github.com/MikkoParkkola/trvl/internal/batchexec"
 	"github.com/MikkoParkkola/trvl/internal/models"
 )
@@ -20,8 +21,32 @@ func mergeFlightResults(googleFlights, kiwiFlights, skiplaggedFlights []models.F
 	// Collapse the same physical itinerary returned by multiple providers into
 	// one result carrying every provider as a PriceSource (cheapest headline).
 	merged = models.ResolveFlightSources(merged)
+	// Carry-on-baseline comparable price (base fare + unavoidable carry-on fee on
+	// overhead-only LCCs) so ranking is not fooled by bare LCC fares. FF benefits
+	// + checked-bag preference refine this at the MCP layer (user profile).
+	applyComparableBaseline(merged)
 	sortFlightResults(merged, opts.SortBy)
 	return merged
+}
+
+// applyComparableBaseline sets ComparablePrice for each flight using the
+// no-status, carry-on-only all-in cost. Deterministic, no network/prefs.
+func applyComparableBaseline(flights []models.FlightResult) {
+	for i := range flights {
+		f := &flights[i]
+		if len(f.Legs) == 0 || f.Price <= 0 {
+			continue
+		}
+		code := f.Legs[0].AirlineCode
+		if code == "" {
+			continue
+		}
+		allIn, breakdown := baggage.AllInCost(f.Price, code, false, true, nil)
+		if allIn > f.Price {
+			f.ComparablePrice = allIn
+			f.ComparableBreakdown = breakdown
+		}
+	}
 }
 
 func filterFlightResults(flights []models.FlightResult, opts SearchOptions) []models.FlightResult {
@@ -131,12 +156,12 @@ func sortFlightResults(flights []models.FlightResult, sortBy models.SortBy) {
 				return cmp < 0
 			}
 		default:
-			if cmp := compareFlightPrices(left.Price, right.Price); cmp != 0 {
+			if cmp := compareFlightPrices(left.PriceForRanking(), right.PriceForRanking()); cmp != 0 {
 				return cmp < 0
 			}
 		}
 
-		if cmp := compareFlightPrices(left.Price, right.Price); cmp != 0 {
+		if cmp := compareFlightPrices(left.PriceForRanking(), right.PriceForRanking()); cmp != 0 {
 			return cmp < 0
 		}
 		if left.Duration != right.Duration {
