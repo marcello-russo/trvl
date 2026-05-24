@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/MikkoParkkola/trvl/internal/batchexec"
+	"github.com/MikkoParkkola/trvl/internal/destinations"
 	"github.com/MikkoParkkola/trvl/internal/models"
 	"github.com/MikkoParkkola/trvl/internal/searchctx"
 	"golang.org/x/sync/singleflight"
@@ -248,6 +249,17 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 			FixHint: "drop unsupported options or call Skiplagged directly via provider=skiplagged",
 		})
 	}
+
+	// Normalize all provider prices to the session currency so resolution and
+	// ranking compare like with like (Skiplagged returns USD, Kiwi its own).
+	// Best-effort and offline-safe: same-currency conversions never hit the net.
+	target := currency
+	if opts.Currency != "" {
+		target = opts.Currency
+	}
+	normalizeFlightCurrencies(ctx, googleFlights, target, destinations.ConvertCurrency)
+	normalizeFlightCurrencies(ctx, kiwiFlights, target, destinations.ConvertCurrency)
+	normalizeFlightCurrencies(ctx, skiplaggedFlights, target, destinations.ConvertCurrency)
 
 	mergedFlights := mergeFlightResults(googleFlights, kiwiFlights, skiplaggedFlights, opts)
 	if googleSucceeded || kiwiSucceeded || skiplaggedSucceeded {

@@ -1,6 +1,7 @@
 package flights
 
 import (
+	"context"
 	"testing"
 
 	"github.com/MikkoParkkola/trvl/internal/models"
@@ -102,4 +103,31 @@ func comparableOf(flights []models.FlightResult, provider string) float64 {
 		}
 	}
 	return 0
+}
+
+func TestNormalizeFlightCurrencies(t *testing.T) {
+	// Stub converter: USD->EUR at 0.9, no network.
+	conv := func(_ context.Context, amount float64, from, to string) (float64, string) {
+		if from == "USD" && to == "EUR" {
+			return amount * 0.9, "EUR"
+		}
+		if from == to {
+			return amount, to
+		}
+		return amount, from // other pairs: leave unchanged
+	}
+	flights := []models.FlightResult{
+		{Price: 100, Currency: "USD", Provider: "skiplagged"},
+		{Price: 90, Currency: "EUR", Provider: "google"},
+		{Price: 50, Currency: "GBP", Provider: "x"}, // unconvertible -> unchanged
+	}
+	normalizeFlightCurrencies(context.Background(), flights, "EUR", conv)
+	if flights[0].Currency != "EUR" || flights[0].Price != 90 {
+		t.Errorf("USD->EUR failed: %v %s", flights[0].Price, flights[0].Currency)
+	}
+	if flights[2].Currency != "GBP" || flights[2].Price != 50 {
+		t.Errorf("unconvertible should stay GBP 50, got %v %s", flights[2].Price, flights[2].Currency)
+	}
+	normalizeFlightCurrencies(context.Background(), flights, "", conv)
+	normalizeFlightCurrencies(context.Background(), flights, "EUR", nil)
 }

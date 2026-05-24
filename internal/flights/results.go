@@ -1,6 +1,7 @@
 package flights
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"time"
@@ -9,6 +10,32 @@ import (
 	"github.com/MikkoParkkola/trvl/internal/batchexec"
 	"github.com/MikkoParkkola/trvl/internal/models"
 )
+
+// currencyConverter converts amount from one currency to another, returning the
+// converted amount and the resulting currency code. Injected for testability so
+// the default offline test suite never hits the network.
+type currencyConverter func(ctx context.Context, amount float64, from, to string) (float64, string)
+
+// normalizeFlightCurrencies rewrites each flight's Price into the target currency
+// so downstream resolution and ranking compare like with like. Conversion is
+// best-effort: a flight is left unchanged if conversion fails or rates are
+// unavailable. A no-op when target is empty or conv is nil.
+func normalizeFlightCurrencies(ctx context.Context, flights []models.FlightResult, target string, conv currencyConverter) {
+	if target == "" || conv == nil {
+		return
+	}
+	for i := range flights {
+		f := &flights[i]
+		if f.Price <= 0 || f.Currency == "" || f.Currency == target {
+			continue
+		}
+		amt, cur := conv(ctx, f.Price, f.Currency, target)
+		if cur == target && amt > 0 {
+			f.Price = amt
+			f.Currency = target
+		}
+	}
+}
 
 const flightTimeLayout = "2006-01-02T15:04"
 
