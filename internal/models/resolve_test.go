@@ -69,3 +69,29 @@ func TestFlightIdentityKey_NoLegsEmpty(t *testing.T) {
 		t.Errorf("no-legs key = %q, want empty (passthrough)", k)
 	}
 }
+
+func TestResolveFlightSources_NoCrossCurrencyCheapest(t *testing.T) {
+	leg := []FlightLeg{{AirlineCode: "AF", FlightNumber: "1234", DepartureTime: "2026-06-01T08:00:00Z"}}
+	// Same flight: USD 119 (skiplagged) vs EUR 210 (kiwi). Raw float compare would
+	// wrongly call USD 119 cheaper than EUR 210. Currency-aware compare must not.
+	in := []FlightResult{
+		{Price: 210, Currency: "EUR", Provider: "kiwi", Legs: leg},
+		{Price: 119, Currency: "USD", Provider: "skiplagged", Legs: leg},
+	}
+	out := ResolveFlightSources(in)
+	if len(out) != 1 {
+		t.Fatalf("want 1 collapsed, got %d", len(out))
+	}
+	r := out[0]
+	// Headline must stay in the comparison currency (EUR, first priced source);
+	// the USD source is retained but not used to claim a cheaper price.
+	if r.Currency != "EUR" || r.Price != 210 {
+		t.Errorf("cross-currency leaked into cheapest: price=%v cur=%s", r.Price, r.Currency)
+	}
+	if r.Savings != 0 {
+		t.Errorf("savings claimed across currencies: %v", r.Savings)
+	}
+	if len(r.Sources) != 2 {
+		t.Errorf("both sources should be retained, got %d", len(r.Sources))
+	}
+}

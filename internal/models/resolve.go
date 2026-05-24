@@ -96,15 +96,26 @@ func GroundIdentityKey(r GroundRoute) string {
 }
 
 // recomputeSourceEconomics sets the headline price to the cheapest source and
-// fills Savings (dearest - cheapest) and the cheapest provider name.
+// fills Savings (dearest - cheapest) and the cheapest provider name. To avoid a
+// false "cheapest" across currencies, comparison is restricted to sources that
+// share the currency of the first priced source; differently-priced-currency
+// sources are kept in Sources but excluded from the min/savings math.
 func recomputeSourceEconomics(sources []PriceSource) (cheapest float64, currency, cheapestProvider, bookingURL string, savings float64) {
 	if len(sources) == 0 {
 		return 0, "", "", "", 0
 	}
+	// Pick the comparison currency: the first source with a positive price.
+	cmpCur := ""
+	for _, s := range sources {
+		if s.Price > 0 {
+			cmpCur = s.Currency
+			break
+		}
+	}
 	minIdx := -1
 	var maxPrice float64
 	for i, s := range sources {
-		if s.Price <= 0 {
+		if s.Price <= 0 || s.Currency != cmpCur {
 			continue
 		}
 		if minIdx == -1 || s.Price < sources[minIdx].Price {
