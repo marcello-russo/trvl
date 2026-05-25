@@ -37,6 +37,7 @@ func flightsCmd() *cobra.Command {
 		award          bool
 		awardCookies   string
 		provider       string
+		flightRailFly  bool
 	)
 
 	cmd := &cobra.Command{
@@ -176,7 +177,7 @@ Examples:
 
 			// Auto-trigger: run applicable hack detectors and print tips
 			// below the flight results.
-			maybeShowFlightHackTips(cmd.Context(), origins, destinations, date, returnDate, adults, result)
+			maybeShowFlightHackTips(cmd.Context(), origins, destinations, date, returnDate, adults, result, flightRailFly)
 
 			if openFlag && result.Success && len(result.Flights) > 0 && result.Flights[0].BookingURL != "" {
 				_ = openBrowser(result.Flights[0].BookingURL)
@@ -198,6 +199,7 @@ Examples:
 	cmd.Flags().BoolVar(&award, "award", false, "Search Flying Blue award availability instead of cash fares")
 	cmd.Flags().StringVar(&awardCookies, "award-cookies", "", "KLM/Flying Blue Cookie header for --award (or set AFKL_KLM_COOKIES)")
 	cmd.Flags().StringVar(&provider, "provider", "", "Flight provider: empty = default (Google Flights + Kiwi + Skiplagged merge), skiplagged = Skiplagged MCP only (hidden-city + virtual-interlining defaults)")
+	cmd.Flags().BoolVar(&flightRailFly, "rail-fly", false, "Expand the search to rail-connected origins (KL/AF Air&Rail), surfacing cheaper rail+fly bundles even when the origin is outside the default hub list")
 
 	cmd.ValidArgsFunction = airportCompletion
 
@@ -571,14 +573,17 @@ func formatMiles(n int) string {
 	return b.String()
 }
 
-// railFlyHubs lists destination airports where Rail+Fly arbitrage is possible.
+// railFlyHubs lists origin hub airports where Rail+Fly arbitrage is possible
+// (departing from a rail-connected nearby station/airport can be cheaper).
+// Keyed by ORIGIN — the detector substitutes rail-reachable origins. The
+// --rail-fly flag forces the check even for origins outside this allowlist.
 var railFlyHubs = map[string]bool{
 	"AMS": true, "FRA": true, "CDG": true, "ZRH": true,
 }
 
 // maybeShowFlightHackTips runs applicable hack detectors after a flight search
 // and prints up to 3 compact tips sorted by savings (highest first).
-func maybeShowFlightHackTips(ctx context.Context, origins, dests []string, departDate, returnDate string, passengers int, result *models.FlightSearchResult) {
+func maybeShowFlightHackTips(ctx context.Context, origins, dests []string, departDate, returnDate string, passengers int, result *models.FlightSearchResult, railFly bool) {
 	if result == nil || !result.Success || len(result.Flights) == 0 {
 		return
 	}
@@ -636,7 +641,7 @@ func maybeShowFlightHackTips(ctx context.Context, origins, dests []string, depar
 	// --- API-call detector: Rail+Fly (goroutine with 15s timeout) ---
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	if railFlyHubs[dest] {
+	if railFly || railFlyHubs[origin] {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

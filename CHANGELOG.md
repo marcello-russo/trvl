@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Last-minute hotel watch mode** — `trvl watch add --type hotel --last-minute` and MCP `watch_price(last_minute=true)` surface sub-48h hotel drops through the existing watch notifier/webhook path.
 - **Hotel points arbitrage offers** — `trvl points-value --offer program:points[:cash_fees]` compares multiple hotel redemption options in one command; Wyndham Rewards was added to the hotel loyalty program table.
 
+### Added
+- **`trvl flights --rail-fly` (MIK-3079)** — opt-in expansion that surfaces KL/AF Air&Rail bundles from rail-connected origins (e.g. BRU/ANR/ZYR for AMS departures), even outside the default hub list.
+
+### Fixed
+- **Rail+Fly arbitrage gate (MIK-3079)** — the flight CLI gated rail+fly on the destination airport instead of the origin hub, so departures from a hub (e.g. AMS) never triggered it. Now keyed on origin; the detector fires for the routes it was built for.
+
 ### Changed
 - **MCP tool annotations complete (MIK-2984)** — every advertised tool carries a ToolAnnotations block (behavior hints + title); coverage test (mcp/tool_annotations_test.go) enforces it.
 - Tool surface 63 → 64 compatibility aliases (added optimize_nested_rt); CLI 50 → 51 commands (added nested).
