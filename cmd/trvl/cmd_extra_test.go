@@ -713,6 +713,57 @@ func TestPrintBookingLinks_NoLinksPrintsNothing(t *testing.T) {
 	}
 }
 
+func TestHotelSearchLinks(t *testing.T) {
+	h := models.HotelResult{Name: "Pestana Casino Park"}
+	booking, google := hotelSearchLinks(h, "Funchal")
+	if !strings.Contains(booking, "booking.com/searchresults.html?ss=") {
+		t.Errorf("booking link wrong: %s", booking)
+	}
+	if !strings.Contains(booking, "Pestana") || !strings.Contains(booking, "Funchal") {
+		t.Errorf("booking link missing name/location: %s", booking)
+	}
+	if !strings.Contains(google, "google.com/travel/search?q=") {
+		t.Errorf("google link wrong: %s", google)
+	}
+	// Location already in the name -> not duplicated.
+	h2 := models.HotelResult{Name: "Hotel Funchal Centro"}
+	b2, _ := hotelSearchLinks(h2, "Funchal")
+	if strings.Count(strings.ToLower(b2), "funchal") != 1 {
+		t.Errorf("location should not be duplicated when already in name: %s", b2)
+	}
+}
+
+func TestPrintHotelLinks(t *testing.T) {
+	hotels := []models.HotelResult{
+		{Name: "TUI BLUE Madeira Gardens", ImageURL: "https://img.test/a.jpg"},
+		{Name: "Quinta da Penha"}, // no image -> Photo line omitted
+	}
+	var b strings.Builder
+	printHotelLinks(&b, hotels, "Funchal")
+	out := b.String()
+	if !strings.Contains(out, "Links (photos & booking):") {
+		t.Fatalf("missing header; got:\n%s", out)
+	}
+	if !strings.Contains(out, "[1] TUI BLUE Madeira Gardens") || !strings.Contains(out, "[2] Quinta da Penha") {
+		t.Errorf("indices wrong; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Photo:         https://img.test/a.jpg") {
+		t.Errorf("missing image link for hotel 1; got:\n%s", out)
+	}
+	// Hotel 2 has no image -> exactly one Photo line total.
+	if strings.Count(out, "Photo:") != 1 {
+		t.Errorf("expected exactly 1 Photo line; got:\n%s", out)
+	}
+}
+
+func TestPrintHotelLinks_EmptyPrintsNothing(t *testing.T) {
+	var b strings.Builder
+	printHotelLinks(&b, nil, "Funchal")
+	if b.String() != "" {
+		t.Errorf("expected empty output for no hotels, got: %q", b.String())
+	}
+}
+
 func TestStarRating(t *testing.T) {
 	tests := []struct {
 		rating float64

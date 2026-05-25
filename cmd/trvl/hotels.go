@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -255,7 +257,7 @@ func formatHotelsTable(ctx context.Context, targetCurrency, location string, res
 		}
 	}
 
-	headers := []string{"Name", "Stars", "Rating", "Reviews", "Price"}
+	headers := []string{"#", "Name", "Stars", "Rating", "Reviews", "Price"}
 	if showSources {
 		headers = append(headers, "Sources")
 	}
@@ -269,7 +271,7 @@ func formatHotelsTable(ctx context.Context, targetCurrency, location string, res
 	for _, h := range result.Hotels {
 		prices = prices.With(h.Price)
 	}
-	for _, h := range result.Hotels {
+	for i, h := range result.Hotels {
 		starsStr := ""
 		if h.Stars > 0 {
 			starsStr = fmt.Sprintf("%d", h.Stars)
@@ -290,7 +292,7 @@ func formatHotelsTable(ctx context.Context, targetCurrency, location string, res
 		if len(amenStr) > 40 {
 			amenStr = amenStr[:37] + "..."
 		}
-		row := []string{h.Name, starsStr, colorizeRating(h.Rating, ratingStr), reviewsStr, priceStr}
+		row := []string{fmt.Sprintf("%d", i+1), h.Name, starsStr, colorizeRating(h.Rating, ratingStr), reviewsStr, priceStr}
 		if showSources {
 			row = append(row, hotelSourceLabels(h))
 		}
@@ -306,6 +308,10 @@ func formatHotelsTable(ctx context.Context, targetCurrency, location string, res
 	}
 
 	models.FormatTable(os.Stdout, headers, rows)
+
+	// Per-property links (photos + booking), numbered to the table's "#"
+	// column, so every hotel shown is directly viewable and bookable.
+	printHotelLinks(os.Stdout, result.Hotels, location)
 
 	// Summary
 	if len(result.Hotels) > 0 {
@@ -348,6 +354,44 @@ func formatHotelsTable(ctx context.Context, targetCurrency, location string, res
 	}
 
 	return nil
+}
+
+// hotelSearchLinks builds per-property links so the user can view photos and
+// book. Booking.com is listed first (captures the user's negotiated rate and
+// shows full photo galleries); Google Hotels is the cross-check. Both are
+// deterministic search-interface URLs keyed on the hotel name (+ location),
+// not fabricated per-resource deep links.
+func hotelSearchLinks(h models.HotelResult, location string) (booking, google string) {
+	q := strings.TrimSpace(h.Name)
+	loc := strings.TrimSpace(location)
+	if loc != "" && !strings.Contains(strings.ToLower(q), strings.ToLower(loc)) {
+		q = q + " " + loc
+	}
+	enc := url.QueryEscape(q)
+	booking = "https://www.booking.com/searchresults.html?ss=" + enc
+	google = "https://www.google.com/travel/search?q=" + enc
+	return
+}
+
+// printHotelLinks lists per-property photo/booking links beneath the hotel
+// table, numbered to match the "#" column. Always prints when hotels exist so
+// every option is directly viewable; the direct image URL is included when the
+// provider supplied one.
+func printHotelLinks(w io.Writer, hotels []models.HotelResult, location string) {
+	if len(hotels) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Links (photos & booking):")
+	for i, h := range hotels {
+		booking, google := hotelSearchLinks(h, location)
+		_, _ = fmt.Fprintf(w, "  [%d] %s\n", i+1, h.Name)
+		_, _ = fmt.Fprintf(w, "      Booking.com:   %s\n", booking)
+		_, _ = fmt.Fprintf(w, "      Google Hotels: %s\n", google)
+		if u := strings.TrimSpace(h.ImageURL); u != "" {
+			_, _ = fmt.Fprintf(w, "      Photo:         %s\n", u)
+		}
+	}
 }
 
 func hotelSourceLabels(h models.HotelResult) string {
