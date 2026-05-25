@@ -11,6 +11,7 @@ package models
 import (
 	"sort"
 	"strings"
+	"time"
 )
 
 // ResolveSources collapses items sharing an identity key into one canonical
@@ -133,11 +134,14 @@ func recomputeSourceEconomics(sources []PriceSource) (cheapest float64, currency
 }
 
 func foldFlightSource(dst *FlightResult, src FlightResult) {
+	now := time.Now()
 	dst.Sources = append(dst.Sources, PriceSource{
-		Provider:   src.Provider,
-		Price:      src.Price,
-		Currency:   src.Currency,
-		BookingURL: src.BookingURL,
+		Provider:    src.Provider,
+		Price:       src.Price,
+		Currency:    src.Currency,
+		BookingURL:  src.BookingURL,
+		RetrievedAt: now,
+		Freshness:   ClassifyFreshness(src.Provider, now, now),
 	})
 	price, cur, prov, url, savings := recomputeSourceEconomics(dst.Sources)
 	if price > 0 {
@@ -151,12 +155,15 @@ func foldFlightSource(dst *FlightResult, src FlightResult) {
 }
 
 func foldGroundSource(dst *GroundRoute, src GroundRoute) {
+	now := time.Now()
 	dst.Sources = append(dst.Sources, PriceSource{
-		Provider:   src.Provider,
-		Price:      src.Price,
-		MaxPrice:   src.PriceMax,
-		Currency:   src.Currency,
-		BookingURL: src.BookingURL,
+		Provider:    src.Provider,
+		Price:       src.Price,
+		MaxPrice:    src.PriceMax,
+		Currency:    src.Currency,
+		BookingURL:  src.BookingURL,
+		RetrievedAt: now,
+		Freshness:   ClassifyFreshness(src.Provider, now, now),
 	})
 	price, cur, prov, url, savings := recomputeSourceEconomics(dst.Sources)
 	if price > 0 {

@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // PriceSource tracks which provider found a result at what price.
 // When multiple providers return the same hotel, all sources are preserved
 // and the lowest price becomes the primary HotelResult.Price.
@@ -10,6 +12,10 @@ type PriceSource struct {
 	Currency   string  `json:"currency"`
 	RoomCount  int     `json:"room_count,omitempty"` // distinct room types (when available)
 	BookingURL string  `json:"booking_url,omitempty"`
+	// RetrievedAt is when trvl obtained this price; Freshness classifies it
+	// (live|recent|stale) so renderers can avoid superlatives on stale prices.
+	RetrievedAt time.Time `json:"retrieved_at,omitempty"`
+	Freshness   string    `json:"freshness,omitempty"`
 }
 
 // Room represents a single bookable room type at a property.
