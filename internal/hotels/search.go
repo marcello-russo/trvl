@@ -546,6 +546,14 @@ func searchHotelsCore(ctx context.Context, client *batchexec.Client, location st
 		}
 	}
 
+	// Mark adults-only properties so renderers and child-aware filters can act
+	// on them. Detection is centralised here so every provider path benefits.
+	for i := range hotels {
+		if models.IsAdultsOnly(hotels[i].Name, hotels[i].Description) {
+			hotels[i].AdultsOnly = true
+		}
+	}
+
 	return &models.HotelSearchResult{
 		Success:          true,
 		Count:            len(hotels),

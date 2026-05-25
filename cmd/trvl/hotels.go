@@ -38,6 +38,7 @@ Examples:
 	cmd.Flags().String("checkin", "", "Check-in date (YYYY-MM-DD, required)")
 	cmd.Flags().String("checkout", "", "Check-out date (YYYY-MM-DD, required)")
 	cmd.Flags().Int("guests", 2, "Number of guests")
+	cmd.Flags().Int("children", 0, "Number of children in the party (excludes adults-only properties when > 0)")
 	cmd.Flags().Int("stars", 0, "Minimum star rating (0=any, 2-5)")
 	cmd.Flags().String("sort", "cheapest", "Sort by: cheapest, rating, distance, stars")
 	cmd.Flags().String("currency", "", "Target currency (e.g. EUR, USD). Empty = API default. Passed to Google if supported, otherwise converted")
@@ -89,6 +90,7 @@ func runHotels(cmd *cobra.Command, args []string) error {
 	checkin, _ := cmd.Flags().GetString("checkin")
 	checkout, _ := cmd.Flags().GetString("checkout")
 	guests, _ := cmd.Flags().GetInt("guests")
+	children, _ := cmd.Flags().GetInt("children")
 	stars, _ := cmd.Flags().GetInt("stars")
 	sortBy, _ := cmd.Flags().GetString("sort")
 	currency, _ := cmd.Flags().GetString("currency")
@@ -181,6 +183,20 @@ func runHotels(cmd *cobra.Command, args []string) error {
 	}
 	if err != nil {
 		return fmt.Errorf("hotel search: %w", err)
+	}
+
+	// When the party includes children, never surface adults-only properties.
+	if children > 0 && result != nil {
+		var hidden int
+		result.Hotels, hidden = excludeAdultsOnly(result.Hotels)
+		if hidden > 0 {
+			result.Count = len(result.Hotels)
+			plural := "property"
+			if hidden != 1 {
+				plural = "properties"
+			}
+			fmt.Printf("Note: %d adults-only %s hidden (party includes children).\n", hidden, plural)
+		}
 	}
 
 	// Cache best result for `trvl share --last`.
@@ -289,6 +305,13 @@ func formatHotelsTable(ctx context.Context, targetCurrency, location string, res
 			priceStr = prices.Apply(h.Price, fmt.Sprintf("%.0f %s", h.Price, h.Currency))
 		}
 		amenStr := strings.Join(h.Amenities, ", ")
+		if h.AdultsOnly {
+			if amenStr != "" {
+				amenStr = "adults-only, " + amenStr
+			} else {
+				amenStr = "adults-only"
+			}
+		}
 		if len(amenStr) > 40 {
 			amenStr = amenStr[:37] + "..."
 		}
@@ -392,6 +415,21 @@ func printHotelLinks(w io.Writer, hotels []models.HotelResult, location string) 
 			_, _ = fmt.Fprintf(w, "      Photo:         %s\n", u)
 		}
 	}
+}
+
+// excludeAdultsOnly returns the hotels with every adults-only property
+// removed, plus the count removed. The input slice is not mutated.
+func excludeAdultsOnly(in []models.HotelResult) (kept []models.HotelResult, hidden int) {
+	kept = make([]models.HotelResult, 0, len(in))
+	for _, h := range in {
+		if h.AdultsOnly {
+			hidden++
+			continue
+		}
+		kept = append(kept, h)
+	}
+	return kept, hidden
+
 }
 
 func hotelSourceLabels(h models.HotelResult) string {
