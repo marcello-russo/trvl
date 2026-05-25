@@ -570,6 +570,117 @@ func TestFlightRoute(t *testing.T) {
 	}
 }
 
+func TestFlightRoute_AnnotatesLayover(t *testing.T) {
+	f := models.FlightResult{
+		Legs: []models.FlightLeg{
+			{DepartureAirport: models.AirportInfo{Code: "BRU"}, ArrivalAirport: models.AirportInfo{Code: "FRA"}},
+			{DepartureAirport: models.AirportInfo{Code: "FRA"}, ArrivalAirport: models.AirportInfo{Code: "TLL"}, LayoverMinutes: 120},
+		},
+	}
+	want := "BRU -> FRA (2h 0m) -> TLL"
+	if got := flightRoute(f); got != want {
+		t.Errorf("flightRoute() = %q, want %q", got, want)
+	}
+}
+
+func TestFlightAirlinesDisplay(t *testing.T) {
+	tests := []struct {
+		name string
+		f    models.FlightResult
+		want string
+	}{
+		{"single", models.FlightResult{Legs: []models.FlightLeg{{Airline: "Finnair"}}}, "Finnair"},
+		{"dedup same", models.FlightResult{Legs: []models.FlightLeg{{Airline: "Finnair"}, {Airline: "Finnair"}}}, "Finnair"},
+		{"mixed", models.FlightResult{Legs: []models.FlightLeg{{Airline: "Brussels"}, {Airline: "Lufthansa"}}}, "Brussels / Lufthansa"},
+		{"empty", models.FlightResult{}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := flightAirlinesDisplay(tt.f); got != tt.want {
+				t.Errorf("flightAirlinesDisplay() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFlightNumbersDisplay(t *testing.T) {
+	tests := []struct {
+		name string
+		f    models.FlightResult
+		want string
+	}{
+		{"single", models.FlightResult{Legs: []models.FlightLeg{{FlightNumber: "AY1306"}}}, "AY1306"},
+		{"connection", models.FlightResult{Legs: []models.FlightLeg{{FlightNumber: "SN2611"}, {FlightNumber: "LH882"}}}, "SN2611 / LH882"},
+		{"all empty", models.FlightResult{Legs: []models.FlightLeg{{}, {}}}, "-"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := flightNumbersDisplay(tt.f); got != tt.want {
+				t.Errorf("flightNumbersDisplay() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFlightAircraftDisplay(t *testing.T) {
+	tests := []struct {
+		name string
+		f    models.FlightResult
+		want string
+	}{
+		{"single", models.FlightResult{Legs: []models.FlightLeg{{Aircraft: "Airbus A350"}}}, "A350"},
+		{"connection", models.FlightResult{Legs: []models.FlightLeg{{Aircraft: "Airbus A319"}, {Aircraft: "Airbus A320"}}}, "A319 / A320"},
+		{"boeing", models.FlightResult{Legs: []models.FlightLeg{{Aircraft: "Boeing 737-800"}}}, "737-800"},
+		{"all empty", models.FlightResult{Legs: []models.FlightLeg{{}, {}}}, "-"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := flightAircraftDisplay(tt.f); got != tt.want {
+				t.Errorf("flightAircraftDisplay() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatLegDeparture(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"google form", "2026-05-28T19:25", "Thu 28 May 19:25"},
+		{"rfc3339", "2026-05-28T19:25:00+02:00", "Thu 28 May 19:25"},
+		{"unparseable falls back", "garbage", "garbage"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatLegDeparture(tt.raw); got != tt.want {
+				t.Errorf("formatLegDeparture(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatLegArrival(t *testing.T) {
+	tests := []struct {
+		name string
+		dep  string
+		arr  string
+		want string
+	}{
+		{"same day", "2026-05-28T19:25", "2026-05-28T22:45", "22:45"},
+		{"overnight +1", "2026-05-29T21:00", "2026-05-30T00:25", "00:25 +1"},
+		{"unparseable arr falls back", "2026-05-28T19:25", "nope", "nope"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatLegArrival(tt.dep, tt.arr); got != tt.want {
+				t.Errorf("formatLegArrival(%q,%q) = %q, want %q", tt.dep, tt.arr, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestStarRating(t *testing.T) {
 	tests := []struct {
 		rating float64

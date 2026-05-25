@@ -298,7 +298,7 @@ func printFlightsTable(ctx context.Context, origin, destination, targetCurrency 
 	if showProvider {
 		headers = append(headers, "Provider")
 	}
-	headers = append(headers, "Airline", "Flight", "Departs", "Arrives")
+	headers = append(headers, "Airline", "Flight", "Aircraft", "Departs", "Arrives")
 	if showNotes {
 		headers = append(headers, "Notes")
 	}
@@ -311,16 +311,15 @@ func printFlightsTable(ctx context.Context, origin, destination, targetCurrency 
 
 	for i, f := range result.Flights {
 		route := flightRoute(f)
-		airline := ""
-		flightNum := ""
+		airline := flightAirlinesDisplay(f)
+		flightNum := flightNumbersDisplay(f)
+		aircraft := flightAircraftDisplay(f)
 		departs := ""
 		arrives := ""
 
 		if len(f.Legs) > 0 {
-			airline = f.Legs[0].Airline
-			flightNum = f.Legs[0].FlightNumber
-			departs = f.Legs[0].DepartureTime
-			arrives = f.Legs[len(f.Legs)-1].ArrivalTime
+			departs = formatLegDeparture(f.Legs[0].DepartureTime)
+			arrives = formatLegArrival(f.Legs[0].DepartureTime, f.Legs[len(f.Legs)-1].ArrivalTime)
 		}
 
 		row := []string{
@@ -337,7 +336,7 @@ func printFlightsTable(ctx context.Context, origin, destination, targetCurrency 
 		if showProvider {
 			row = append(row, flightProviderLabel(f))
 		}
-		row = append(row, airline, flightNum, departs, arrives)
+		row = append(row, airline, flightNum, aircraft, departs, arrives)
 		if showNotes {
 			row = append(row, flightWarnings(f))
 		}
@@ -433,17 +432,157 @@ func flightWarnings(f models.FlightResult) string {
 	return ""
 }
 
-// flightRoute builds a route string like "HEL -> FRA -> NRT".
+// flightRoute builds a route string like "HEL -> FRA -> NRT", annotating
+// connection airports with their layover duration, e.g.
+// "HEL -> FRA (2h00) -> NRT". Nonstop flights render as "AMS -> HEL".
 func flightRoute(f models.FlightResult) string {
 	if len(f.Legs) == 0 {
 		return ""
 	}
 
 	parts := []string{f.Legs[0].DepartureAirport.Code}
-	for _, leg := range f.Legs {
+	for i, leg := range f.Legs {
+		// Annotate the connection airport (arrival of a non-final leg) with the
+		// layover before the next leg, when the model carries it.
+		if i < len(f.Legs)-1 {
+			lo := f.Legs[i+1].LayoverMinutes
+			if lo > 0 {
+				parts = append(parts, fmt.Sprintf("%s (%s)", leg.ArrivalAirport.Code, formatDuration(lo)))
+				continue
+			}
+		}
 		parts = append(parts, leg.ArrivalAirport.Code)
 	}
 	return strings.Join(parts, " -> ")
+}
+
+// flightAirlinesDisplay returns the operating carrier(s). A single-carrier
+// itinerary shows that airline; a mixed itinerary joins distinct carriers with
+// " / " so connection flights reveal every operator (e.g. "Brussels / Lufthansa").
+func flightAirlinesDisplay(f models.FlightResult) string {
+	var names []string
+	seen := map[string]bool{}
+	for _, leg := range f.Legs {
+		name := strings.TrimSpace(leg.Airline)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	return strings.Join(names, " / ")
+}
+
+// flightNumbersDisplay joins every leg's flight number with " / " so a
+// connection shows each segment (e.g. "SN2611 / LH882"). Empty leg numbers
+// (some providers omit them) are skipped; an all-empty itinerary yields "-".
+func flightNumbersDisplay(f models.FlightResult) string {
+	var nums []string
+	for _, leg := range f.Legs {
+		n := strings.TrimSpace(leg.FlightNumber)
+		if n == "" {
+			continue
+		}
+		nums = append(nums, n)
+	}
+	if len(nums) == 0 {
+		return "-"
+	}
+	return strings.Join(nums, " / ")
+}
+
+// flightAircraftDisplay joins every leg's aircraft type with " / " so a
+// connection shows the plane on each segment (e.g. "A319 / A320"). Manufacturer
+// prefixes are trimmed for table width. An all-empty itinerary yields "-".
+func flightAircraftDisplay(f models.FlightResult) string {
+	var craft []string
+	for _, leg := range f.Legs {
+		c := shortAircraft(leg.Aircraft)
+		if c == "" {
+			continue
+		}
+		craft = append(craft, c)
+	}
+	if len(craft) == 0 {
+		return "-"
+	}
+	return strings.Join(craft, " / ")
+}
+
+// shortAircraft trims verbose manufacturer prefixes so the Aircraft column
+// stays narrow: "Airbus A350" -> "A350", "Boeing 737-800" -> "737-800".
+func shortAircraft(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	for _, prefix := range []string{"Airbus ", "Boeing ", "Embraer ", "Bombardier ", "Embraer-", "Airbus-"} {
+		if strings.HasPrefix(s, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(s, prefix))
+		}
+	}
+	return s
+}
+
+// parseFlightTime parses the assorted timestamp formats trvl's providers emit:
+// RFC3339 with offset (skiplagged), and the offset-less "2006-01-02T15:04" /
+// "...T15:04:05" forms (Google Flights / Kiwi). Returns ok=false if unparseable.
+func parseFlightTime(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// formatLegDeparture renders a departure timestamp with its date, e.g.
+// "Thu 28 May 19:25". Falls back to the raw string if it cannot be parsed.
+func formatLegDeparture(raw string) string {
+	t, ok := parseFlightTime(raw)
+	if !ok {
+		return raw
+	}
+	return t.Format("Mon 2 Jan 15:04")
+}
+
+// formatLegArrival renders an arrival time, appending a "+N" day marker when the
+// arrival lands on a later calendar date than departure (overnight flights),
+// e.g. "00:25 +1". Falls back to the raw arrival string if unparseable.
+func formatLegArrival(depRaw, arrRaw string) string {
+	arr, ok := parseFlightTime(arrRaw)
+	if !ok {
+		return arrRaw
+	}
+	out := arr.Format("15:04")
+	if dep, depOK := parseFlightTime(depRaw); depOK {
+		d := dayDelta(dep, arr)
+		if d > 0 {
+			out += fmt.Sprintf(" +%d", d)
+		}
+	}
+	return out
+}
+
+// dayDelta returns the number of calendar days arrival is after departure,
+// using each timestamp's own location so an overnight flight reads "+1".
+func dayDelta(dep, arr time.Time) int {
+	dy, dm, dd := dep.Date()
+	ay, am, ad := arr.Date()
+	depDay := time.Date(dy, dm, dd, 0, 0, 0, 0, time.UTC)
+	arrDay := time.Date(ay, am, ad, 0, 0, 0, 0, time.UTC)
+	return int(arrDay.Sub(depDay).Hours() / 24)
 }
 
 // formatPrice formats a price with currency.
