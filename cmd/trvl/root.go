@@ -75,6 +75,7 @@ func init() {
 	rootCmd.AddCommand(watchCmd())
 	rootCmd.AddCommand(roomsCmd())
 	rootCmd.AddCommand(hacksCmd())
+	rootCmd.AddCommand(nestedCmd())
 	rootCmd.AddCommand(hiddenCityCmd())
 	rootCmd.AddCommand(accomHackCmd())
 	rootCmd.AddCommand(mcpCmd())

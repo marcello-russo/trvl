@@ -12,58 +12,15 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"sync"
 
-	"github.com/MikkoParkkola/trvl/internal/flights"
 	"github.com/MikkoParkkola/trvl/internal/hacks"
 )
 
-// legPricer returns the cheapest price for a search; returnDate empty = one-way.
-// Injected so tests run offline.
-type legPricer func(ctx context.Context, origin, dest, date, returnDate string) float64
-
-// liveLegPricer prices via the real flight providers (cheapest comparable).
-func liveLegPricer(ctx context.Context, origin, dest, date, returnDate string) float64 {
-	res, err := flights.SearchFlights(ctx, origin, dest, date, flights.SearchOptions{ReturnDate: returnDate})
-	if err != nil || res == nil || len(res.Flights) == 0 {
-		return 0
-	}
-	best := res.Flights[0].PriceForRanking()
-	for _, f := range res.Flights[1:] {
-		if p := f.PriceForRanking(); p > 0 && (best == 0 || p < best) {
-			best = p
-		}
-	}
-	return best
-}
-
-// priceVisitWindow fans out the four quotes a VisitWindow needs, in parallel.
-func priceVisitWindow(ctx context.Context, a, b, departDate, returnDate string, price legPricer) hacks.VisitWindow {
-	var w hacks.VisitWindow
-	w.DepartDate, w.ReturnDate = departDate, returnDate
-	var wg sync.WaitGroup
-	wg.Add(4)
-	go func() { defer wg.Done(); w.RoundTripFromA = price(ctx, a, b, departDate, returnDate) }()
-	go func() { defer wg.Done(); w.LegFromAToB = price(ctx, a, b, departDate, "") }()
-	go func() { defer wg.Done(); w.LegFromBToA = price(ctx, b, a, returnDate, "") }()
-	go func() { defer wg.Done(); w.RoundTripFromB = price(ctx, b, a, departDate, returnDate) }()
-	wg.Wait()
-	return w
-}
-
-// nestedRTResult is the structured output of optimize_nested_rt.
-type nestedRTResult struct {
-	Origin   string                `json:"origin"`
-	Dest     string                `json:"destination"`
-	Pairings []hacks.PairingResult `json:"pairings"`
-	BestSave float64               `json:"best_savings_eur"`
-}
-
 func handleOptimizeNestedRT(ctx context.Context, args map[string]any, _ ElicitFunc, _ SamplingFunc, _ ProgressFunc) ([]ContentBlock, interface{}, error) {
-	return optimizeNestedRT(ctx, args, liveLegPricer)
+	return optimizeNestedRT(ctx, args, hacks.DefaultLegPricer)
 }
 
-func optimizeNestedRT(ctx context.Context, args map[string]any, price legPricer) ([]ContentBlock, interface{}, error) {
+func optimizeNestedRT(ctx context.Context, args map[string]any, price hacks.LegPricer) ([]ContentBlock, interface{}, error) {
 	origin, dest, err := validateOriginDest(args)
 	if err != nil {
 		return nil, nil, err
@@ -85,15 +42,7 @@ func optimizeNestedRT(ctx context.Context, args map[string]any, price legPricer)
 		return nil, nil, err
 	}
 
-	// Price both windows concurrently.
-	var w1, w2 hacks.VisitWindow
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); w1 = priceVisitWindow(ctx, origin, dest, w1d, w1r, price) }()
-	go func() { defer wg.Done(); w2 = priceVisitWindow(ctx, origin, dest, w2d, w2r, price) }()
-	wg.Wait()
-
-	ranked := hacks.EnumerateAndRank(w1, w2, 3)
+	ranked := hacks.PlanNestedRT(ctx, origin, dest, w1d, w1r, w2d, w2r, price, 3)
 	if len(ranked) == 0 {
 		return nil, nil, fmt.Errorf("could not price both visit windows for %s<->%s", origin, dest)
 	}
@@ -115,6 +64,14 @@ func optimizeNestedRT(ctx context.Context, args map[string]any, price legPricer)
 		return nil, nil, err
 	}
 	return blocks, out, nil
+}
+
+// nestedRTResult is the structured output of optimize_nested_rt.
+type nestedRTResult struct {
+	Origin   string                `json:"origin"`
+	Dest     string                `json:"destination"`
+	Pairings []hacks.PairingResult `json:"pairings"`
+	BestSave float64               `json:"best_savings_eur"`
 }
 
 func nestedRTTool() ToolDef {
