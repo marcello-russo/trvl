@@ -85,6 +85,7 @@ func init() {
 	rootCmd.AddCommand(airCmd())
 	rootCmd.AddCommand(sunCmd())
 	rootCmd.AddCommand(bikesCmd())
+	rootCmd.AddCommand(pricetrendsCmd())
 	rootCmd.AddCommand(baggageCmd())
 	rootCmd.AddCommand(whenCmd())
 	rootCmd.AddCommand(discoverCmd())
