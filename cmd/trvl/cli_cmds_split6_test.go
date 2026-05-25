@@ -299,7 +299,7 @@ func TestMaybeShowFlightHackTips_EmptyFlightsV7(t *testing.T) {
 		Flights: nil,
 	}
 
-	maybeShowFlightHackTips(context.Background(), []string{"HEL"}, []string{"BCN"}, "2026-07-01", "", 1, result)
+	maybeShowFlightHackTips(context.Background(), []string{"HEL"}, []string{"BCN"}, "2026-07-01", "", 1, result, false)
 }
 
 func TestSuggestCmd_InvalidOriginIATAV7(t *testing.T) {
