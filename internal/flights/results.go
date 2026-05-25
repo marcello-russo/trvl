@@ -370,6 +370,86 @@ func ryanairEligibleOptions(opts SearchOptions) bool {
 	return true
 }
 
+// wizzairSearchEligible mirrors the shared-client guard used by Kiwi/Skiplagged/
+// Ryanair so the Wizz Air provider only fires under the production shared client
+// (tests that inject a custom client auto-skip it).
+func wizzairSearchEligible(client *batchexec.Client, opts SearchOptions) bool {
+	if client == nil || client != batchexec.SharedClient() {
+		return false
+	}
+	return wizzairEligibleOptions(opts)
+}
+
+// wizzairEligibleOptions reports whether a search can be served by Wizz Air's
+// timetable endpoint. Wizz is non-aligned and the timetable is one-way nonstop
+// economy; round-trip / non-economy / alliance filters skip it. An airline
+// filter, if present, must include Wizz Air (W6).
+func wizzairEligibleOptions(opts SearchOptions) bool {
+	if opts.ReturnDate != "" {
+		return false
+	}
+	if len(opts.Alliances) > 0 {
+		return false
+	}
+	if opts.CabinClass != 0 && opts.CabinClass != models.Economy {
+		return false
+	}
+	if len(opts.Airlines) > 0 {
+		ok := false
+		for _, a := range opts.Airlines {
+			if strings.EqualFold(strings.TrimSpace(a), "W6") {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// transaviaSearchEligible gates the Transavia provider. Unlike the other LCC
+// providers, Transavia requires a free developer API key (TRANSAVIA_API_KEY) —
+// it mirrors the AFKLM opt-in semantics: a no-op skip when the key is absent.
+// The shared-client guard keeps it out of injected-client unit tests.
+func transaviaSearchEligible(client *batchexec.Client, opts SearchOptions) bool {
+	if client == nil || client != batchexec.SharedClient() {
+		return false
+	}
+	if !transaviaConfigured() {
+		return false
+	}
+	return transaviaEligibleOptions(opts)
+}
+
+// transaviaEligibleOptions reports whether a search can be served by Transavia's
+// Flight Offers API. Transavia is non-aligned and the offers search here is
+// one-way; round-trip / alliance filters skip it. An airline filter, if present,
+// must include Transavia (HV) or Transavia France (TO).
+func transaviaEligibleOptions(opts SearchOptions) bool {
+	if opts.ReturnDate != "" {
+		return false
+	}
+	if len(opts.Alliances) > 0 {
+		return false
+	}
+	if len(opts.Airlines) > 0 {
+		ok := false
+		for _, a := range opts.Airlines {
+			code := strings.ToUpper(strings.TrimSpace(a))
+			if code == "HV" || code == "TO" {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // okOrNoHit returns StatusCheckedNoHit when a provider succeeded but returned
 // zero results (a definitive "checked, found nothing"), else StatusOK.
 // Distinguishing this from a failure/timeout is the evidence-envelope contract.
