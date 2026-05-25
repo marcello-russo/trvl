@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-25
+
 ### Added
 - **Nested/overlapping round-trip optimizer (MIK-3076)** — `optimize_nested_rt` MCP tool and `trvl nested` CLI find whether overlapping round-trips beat two separate returns for two visits between the same cities; both windows priced live in parallel. `optimize_booking` routes here when `multi_visit=true`.
 - **Direct Ryanair provider (MIK-4963)** — recovers the ultra-LCC Google/GDS omit, via Fare Finder (no API key); carrier/flight number, exact times+price, bag-aware comparable cost.
