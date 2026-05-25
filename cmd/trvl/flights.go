@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"sort"
@@ -290,7 +291,7 @@ func printFlightsTable(ctx context.Context, origin, destination, targetCurrency 
 		}
 	}
 
-	headers := []string{"Price"}
+	headers := []string{"#", "Price"}
 	if showAllIn {
 		headers = append(headers, "All-in")
 	}
@@ -323,6 +324,7 @@ func printFlightsTable(ctx context.Context, origin, destination, targetCurrency 
 		}
 
 		row := []string{
+			fmt.Sprintf("%d", i+1),
 			prices.Apply(f.Price, formatPrice(f.Price, f.Currency)),
 		}
 		if showAllIn {
@@ -344,6 +346,11 @@ func printFlightsTable(ctx context.Context, origin, destination, targetCurrency 
 	}
 
 	models.FormatTable(os.Stdout, headers, rows)
+
+	// Direct booking links, numbered to match the table's "#" column, so every
+	// option shown is directly actionable. Full URLs would shatter table
+	// alignment, so they live in a list beneath the grid.
+	printBookingLinks(os.Stdout, result.Flights)
 
 	// Summary: cheapest flight
 	if len(result.Flights) > 0 {
@@ -419,6 +426,43 @@ func flightProviderLabel(f models.FlightResult) string {
 		return "Kiwi"
 	default:
 		return f.Provider
+	}
+}
+
+// printBookingLinks lists the direct booking URL for each flight, numbered to
+// match the table's "#" column so every option in the grid is actionable.
+// Flights without a URL are skipped; nothing is printed when none carry a link.
+func printBookingLinks(w io.Writer, flights []models.FlightResult) {
+	type linkRow struct {
+		idx   int
+		label string
+		url   string
+	}
+	var links []linkRow
+	for i, f := range flights {
+		if strings.TrimSpace(f.BookingURL) == "" {
+			continue
+		}
+		label := flightAirlinesDisplay(f)
+		if p := flightProviderLabel(f); p != "" {
+			if label != "" {
+				label += " · " + p
+			} else {
+				label = p
+			}
+		}
+		if label == "" {
+			label = "-"
+		}
+		links = append(links, linkRow{idx: i + 1, label: label, url: f.BookingURL})
+	}
+	if len(links) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Booking links:")
+	for _, l := range links {
+		_, _ = fmt.Fprintf(w, "  [%d] %s — %s\n", l.idx, l.label, l.url)
 	}
 }
 

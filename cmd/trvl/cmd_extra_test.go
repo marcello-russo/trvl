@@ -681,6 +681,38 @@ func TestFormatLegArrival(t *testing.T) {
 	}
 }
 
+func TestPrintBookingLinks(t *testing.T) {
+	flights := []models.FlightResult{
+		{Provider: "google_flights", BookingURL: "https://book.test/a", Legs: []models.FlightLeg{{Airline: "Finnair"}}},
+		{Provider: "kiwi", BookingURL: "", Legs: []models.FlightLeg{{Airline: "KLM"}}}, // no URL -> skipped
+		{Provider: "skiplagged", BookingURL: "https://book.test/c", Legs: []models.FlightLeg{{Airline: "easyJet"}}},
+	}
+	var b strings.Builder
+	printBookingLinks(&b, flights)
+	out := b.String()
+	if !strings.Contains(out, "Booking links:") {
+		t.Fatalf("missing header; got:\n%s", out)
+	}
+	// Index must match the table position (1-based): first flight is [1], third is [3].
+	if !strings.Contains(out, "[1] Finnair · Google — https://book.test/a") {
+		t.Errorf("missing/incorrect link 1; got:\n%s", out)
+	}
+	if !strings.Contains(out, "[3] easyJet · skiplagged — https://book.test/c") {
+		t.Errorf("missing/incorrect link 3; got:\n%s", out)
+	}
+	if strings.Contains(out, "[2]") {
+		t.Errorf("flight without URL should be skipped; got:\n%s", out)
+	}
+}
+
+func TestPrintBookingLinks_NoLinksPrintsNothing(t *testing.T) {
+	var b strings.Builder
+	printBookingLinks(&b, []models.FlightResult{{Provider: "kiwi", BookingURL: ""}})
+	if b.String() != "" {
+		t.Errorf("expected empty output when no URLs, got: %q", b.String())
+	}
+}
+
 func TestStarRating(t *testing.T) {
 	tests := []struct {
 		rating float64
