@@ -250,6 +250,39 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 		})
 	}
 
+	// Ryanair direct (Fare Finder) — recovers the ultra-LCC that Google/GDS omit.
+	var ryanairFlights []models.FlightResult
+	var ryanairErr error
+	ryanairSucceeded := false
+	if ryanairSearchEligible(client, opts) {
+		ryanairFlights, ryanairErr = SearchRyanair(ctx, origin, destination, date, currency, opts)
+		if ryanairErr != nil {
+			slog.Warn("ryanair flight search failed", "origin", origin, "destination", destination, "date", date, "error", ryanairErr)
+			statuses = append(statuses, models.ProviderStatus{
+				ID:     "ryanair",
+				Name:   "Ryanair",
+				Status: models.ClassifyProviderError(ryanairErr),
+				Error:  ryanairErr.Error(),
+			})
+		} else {
+			ryanairSucceeded = true
+			statuses = append(statuses, models.ProviderStatus{
+				ID:      "ryanair",
+				Name:    "Ryanair",
+				Status:  "ok",
+				Results: len(ryanairFlights),
+			})
+		}
+	} else {
+		statuses = append(statuses, models.ProviderStatus{
+			ID:      "ryanair",
+			Name:    "Ryanair",
+			Status:  "skipped",
+			Error:   "options not supported by Ryanair direct (round-trip, non-economy cabin, alliance filter, or a non-FR airline filter)",
+			FixHint: "search one-way economy, or drop the alliance/airline filter",
+		})
+	}
+
 	// Normalize all provider prices to the session currency so resolution and
 	// ranking compare like with like (Skiplagged returns USD, Kiwi its own).
 	// Best-effort and offline-safe: same-currency conversions never hit the net.
@@ -260,9 +293,10 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 	normalizeFlightCurrencies(ctx, googleFlights, target, destinations.ConvertCurrency)
 	normalizeFlightCurrencies(ctx, kiwiFlights, target, destinations.ConvertCurrency)
 	normalizeFlightCurrencies(ctx, skiplaggedFlights, target, destinations.ConvertCurrency)
+	normalizeFlightCurrencies(ctx, ryanairFlights, target, destinations.ConvertCurrency)
 
-	mergedFlights := mergeFlightResults(googleFlights, kiwiFlights, skiplaggedFlights, opts)
-	if googleSucceeded || kiwiSucceeded || skiplaggedSucceeded {
+	mergedFlights := mergeFlightResults(googleFlights, kiwiFlights, skiplaggedFlights, opts, ryanairFlights)
+	if googleSucceeded || kiwiSucceeded || skiplaggedSucceeded || ryanairSucceeded {
 		return &models.FlightSearchResult{
 			Success:          true,
 			Count:            len(mergedFlights),
@@ -282,6 +316,9 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 	}
 	if skiplaggedErr != nil {
 		errs = append(errs, skiplaggedErr)
+	}
+	if ryanairErr != nil {
+		errs = append(errs, ryanairErr)
 	}
 	if len(errs) > 0 {
 		err := errors.Join(errs...)

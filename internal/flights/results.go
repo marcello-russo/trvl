@@ -39,11 +39,14 @@ func normalizeFlightCurrencies(ctx context.Context, flights []models.FlightResul
 
 const flightTimeLayout = "2006-01-02T15:04"
 
-func mergeFlightResults(googleFlights, kiwiFlights, skiplaggedFlights []models.FlightResult, opts SearchOptions) []models.FlightResult {
+func mergeFlightResults(googleFlights, kiwiFlights, skiplaggedFlights []models.FlightResult, opts SearchOptions, extra ...[]models.FlightResult) []models.FlightResult {
 	merged := make([]models.FlightResult, 0, len(googleFlights)+len(kiwiFlights)+len(skiplaggedFlights))
 	merged = append(merged, googleFlights...)
 	merged = append(merged, kiwiFlights...)
 	merged = append(merged, skiplaggedFlights...)
+	for _, ex := range extra {
+		merged = append(merged, ex...)
+	}
 	merged = filterFlightResults(merged, opts)
 	// Collapse the same physical itinerary returned by multiple providers into
 	// one result carrying every provider as a PriceSource (cheapest headline).
@@ -324,6 +327,45 @@ func kiwiEligibleOptions(opts SearchOptions) bool {
 	}
 	if opts.RequireCheckedBag || opts.ExcludeBasic || opts.LessEmissions {
 		return false
+	}
+	return true
+}
+
+// ryanairSearchEligible mirrors the shared-client guard used by Kiwi/Skiplagged
+// so the Ryanair provider only fires under the production shared client (tests
+// that inject a custom client auto-skip it).
+func ryanairSearchEligible(client *batchexec.Client, opts SearchOptions) bool {
+	if client == nil || client != batchexec.SharedClient() {
+		return false
+	}
+	return ryanairEligibleOptions(opts)
+}
+
+// ryanairEligibleOptions reports whether a search can be served by Ryanair's
+// one-way Fare Finder. Ryanair is non-aligned, economy-only here, and the Fare
+// Finder is one-way nonstop; round-trip / non-economy / alliance filters skip it.
+func ryanairEligibleOptions(opts SearchOptions) bool {
+	if opts.ReturnDate != "" {
+		return false
+	}
+	if len(opts.Alliances) > 0 {
+		return false
+	}
+	if opts.CabinClass != 0 && opts.CabinClass != models.Economy {
+		return false
+	}
+	// If an airline filter is set, it must include Ryanair (FR).
+	if len(opts.Airlines) > 0 {
+		ok := false
+		for _, a := range opts.Airlines {
+			if strings.EqualFold(strings.TrimSpace(a), "FR") {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
 	}
 	return true
 }
