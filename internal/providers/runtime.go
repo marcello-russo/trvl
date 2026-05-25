@@ -655,6 +655,22 @@ func (rt *Runtime) searchProvider(ctx context.Context, cfg *ProviderConfig, loca
 			endpointURL = substituteVars(cfg.Auth.PreflightURL, vars)
 		}
 		browserCookiesApplied = applyBrowserCookies(pc.client, endpointURL, cfg.Cookies.Browser)
+
+		// Fail loudly when a browser-cookie provider (e.g. Booking.com) has no
+		// usable browser session. Without cookies the WAF strips data and the
+		// search silently returns nothing, hiding the real cause from the user.
+		// Returning a typed error here routes through the standard per-provider
+		// error path, where classifyProviderError tags it BOOKING_COOKIES_MISSING
+		// with an actionable fix hint.
+		//
+		// Gated on BrowserEscapeHatch: those providers treat browser cookies as
+		// the auth mechanism with no server-side recovery, so missing cookies are
+		// a hard, actionable failure. Providers without the escape hatch (e.g. a
+		// WAF that can still be cleared on a retry) keep their existing recovery
+		// path and are not short-circuited here.
+		if !browserCookiesApplied && cfg.Auth != nil && cfg.Auth.BrowserEscapeHatch {
+			return nil, fmt.Errorf("browser cookies missing for %s: no cookies found for the configured browser (kooky auto-detects from an installed, logged-in browser)", cfg.ID)
+		}
 	}
 
 	// Preflight auth if needed. The preflight URL is resolved with

@@ -336,6 +336,15 @@ func formatHotelsTable(ctx context.Context, targetCurrency, location string, res
 	// column, so every hotel shown is directly viewable and bookable.
 	printHotelLinks(os.Stdout, result.Hotels, location)
 
+	// Transparency: surface providers that errored or were disabled so the
+	// user knows the listed prices may be incomplete (e.g. Booking.com — the
+	// primary discount source — being unavailable). Additive: JSON output is
+	// unchanged and already carries provider_statuses.
+	if warn := formatProviderWarning(result.ProviderStatuses); warn != "" {
+		fmt.Println()
+		fmt.Println(warn)
+	}
+
 	// Summary
 	if len(result.Hotels) > 0 {
 		cheapest := result.Hotels[0]
@@ -429,7 +438,61 @@ func excludeAdultsOnly(in []models.HotelResult) (kept []models.HotelResult, hidd
 		kept = append(kept, h)
 	}
 	return kept, hidden
+}
 
+// formatProviderWarning builds a one-line transparency warning when any
+// provider errored or was disabled, so the user knows the listed prices may be
+// incomplete. Returns "" when every provider reported "ok" (or there are
+// none), in which case the caller prints nothing. Pure function — no I/O — so
+// it can be unit-tested with fabricated ProviderStatus structs.
+func formatProviderWarning(statuses []models.ProviderStatus) string {
+	total := len(statuses)
+	if total == 0 {
+		return ""
+	}
+
+	var down, hints []string
+	for _, s := range statuses {
+		if s.Status != "error" && s.Status != "disabled" {
+			continue
+		}
+		label := s.Name
+		if label == "" {
+			label = s.ID
+		}
+		detail := truncateErr(s.Error)
+		if detail == "" {
+			detail = s.Status
+		}
+		down = append(down, fmt.Sprintf("%s: %s", label, detail))
+		if s.FixHint != "" {
+			hints = append(hints, fmt.Sprintf("%s — %s", label, s.FixHint))
+		}
+	}
+	if len(down) == 0 {
+		return ""
+	}
+
+	warn := fmt.Sprintf("%s %d of %d sources unavailable (%s) — listed prices may be incomplete.",
+		models.Yellow("⚠"), len(down), total, strings.Join(down, ", "))
+	if len(hints) > 0 {
+		warn += "\n  Fix: " + strings.Join(hints, "; ")
+	}
+	return warn
+}
+
+// truncateErr trims provider error strings to a single short, single-line
+// fragment suitable for inline display in the warning.
+func truncateErr(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	const max = 60
+	if len(s) > max {
+		s = strings.TrimSpace(s[:max-1]) + "…"
+	}
+	return s
 }
 
 func hotelSourceLabels(h models.HotelResult) string {
