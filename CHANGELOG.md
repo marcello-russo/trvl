@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Nested/overlapping round-trip optimizer (MIK-3076)** — `optimize_nested_rt` MCP tool and `trvl nested` CLI find whether overlapping round-trips beat two separate returns for two visits between the same cities; both windows priced live in parallel. `optimize_booking` routes here when `multi_visit=true`.
+- **Direct Ryanair provider (MIK-4963)** — recovers the ultra-LCC Google/GDS omit, via Fare Finder (no API key); carrier/flight number, exact times+price, bag-aware comparable cost.
+- **Comparable all-in flight ranking (MIK-4962)** — rank by base fare + unavoidable bag fees − per-user frequent-flyer benefits, FX-normalized; LCC base fares no longer outrank bag-included fares.
+- **Evidence envelope (MIK-4950)** — richer per-provider status + completeness; a provider timeout never renders as "no flights found".
+- **Multisource resolver for flights & ground (MIK-4951)** — collapses the same itinerary across providers into one result with `cheapest_source`.
+- **Price freshness + source-quality registry (MIK-4952)** — stale prices are never labeled "cheapest".
+- **Kiwi advanced search (MIK-4956 Phase A)** — round-trip + flexible-date (±0–3 days) pass-through.
+- **Canonicalizers (MIK-4949)** — shared ParseMoney/ParseTemporal/ParseDuration/ParsePlace/FormatProviderDate in internal/models.
 - **MIK-3087 hotel arbitrage engine** — `internal/hotelarb` now tracks active hotel holds in `~/.trvl/active_holds.json`, evaluates manual re-book decisions against fresh quotes, detects sub-48h last-minute hotel drops at 25%+ below last seen price, and compares hotel points offers against cash using conservative loyalty-program floor values.
 - **Hotel re-book CLI flow** — `trvl prices hold` saves a refundable reservation and `trvl prices rebook` fetches current provider prices (or accepts `--current-price`) to present a hold-current vs. manual re-book recommendation.
 - **Last-minute hotel watch mode** — `trvl watch add --type hotel --last-minute` and MCP `watch_price(last_minute=true)` surface sub-48h hotel drops through the existing watch notifier/webhook path.
