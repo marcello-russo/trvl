@@ -1,6 +1,33 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+// adultsOnlyMarkers are case-insensitive substrings that, when present in a
+// hotel's name or description, indicate the property does not accept children.
+// Kept here (in the shared type package) so every provider path can reuse the
+// same detection logic via IsAdultsOnly.
+var adultsOnlyMarkers = []string{
+	"adults only",
+	"adults-only",
+	"adult only",
+	"adults recommended",
+}
+
+// IsAdultsOnly reports whether the given hotel name or description marks the
+// property as adults-only (i.e. not suitable for parties with children).
+// Matching is case-insensitive across a fixed set of common marker phrases.
+func IsAdultsOnly(name, description string) bool {
+	hay := strings.ToLower(name + " " + description)
+	for _, m := range adultsOnlyMarkers {
+		if strings.Contains(hay, m) {
+			return true
+		}
+	}
+	return false
+}
 
 // PriceSource tracks which provider found a result at what price.
 // When multiple providers return the same hotel, all sources are preserved
@@ -55,6 +82,7 @@ type HotelResult struct {
 	Amenities      []string      `json:"amenities,omitempty"`
 	BookingURL     string        `json:"booking_url,omitempty"`
 	EcoCertified   bool          `json:"eco_certified,omitempty"`
+	AdultsOnly     bool          `json:"adults_only,omitempty"`     // property does not accept children (detected from name/description)
 	Sources        []PriceSource `json:"sources,omitempty"`         // All providers that found this hotel
 	Savings        float64       `json:"savings,omitempty"`         // price difference: most expensive source - cheapest source
 	CheapestSource string        `json:"cheapest_source,omitempty"` // provider name of cheapest source
