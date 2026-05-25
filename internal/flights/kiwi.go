@@ -393,11 +393,12 @@ func parseKiwiTimestamp(raw string) (time.Time, bool) {
 }
 
 func kiwiDate(date string) (string, error) {
-	t, err := models.ParseDate(date)
-	if err != nil {
-		return "", err
+	// Shared outbound date canonicalizer (MIK-4956 XSHOP.6) instead of a
+	// hand-rolled layout. Kiwi wants day/month/year.
+	if out, ok := models.FormatProviderDate(date, models.DateLayoutDMY); ok {
+		return out, nil
 	}
-	return t.Format("02/01/2006"), nil
+	return "", fmt.Errorf("kiwi: invalid date %q", date)
 }
 
 func kiwiCabinClass(cabin models.CabinClass) string {
