@@ -172,7 +172,7 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 		statuses = append(statuses, models.ProviderStatus{
 			ID:      "google_flights",
 			Name:    "Google Flights",
-			Status:  "ok",
+			Status:  okOrNoHit(len(googleFlights)),
 			Results: len(googleFlights),
 		})
 	} else {
@@ -202,7 +202,7 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 			statuses = append(statuses, models.ProviderStatus{
 				ID:      "kiwi",
 				Name:    "Kiwi",
-				Status:  "ok",
+				Status:  okOrNoHit(len(kiwiFlights)),
 				Results: len(kiwiFlights),
 			})
 		}
@@ -236,7 +236,7 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 			statuses = append(statuses, models.ProviderStatus{
 				ID:      "skiplagged",
 				Name:    "Skiplagged",
-				Status:  "ok",
+				Status:  okOrNoHit(len(skiplaggedFlights)),
 				Results: len(skiplaggedFlights),
 			})
 		}
@@ -269,7 +269,7 @@ func searchFlightsCore(ctx context.Context, client *batchexec.Client, origin, de
 			statuses = append(statuses, models.ProviderStatus{
 				ID:      "ryanair",
 				Name:    "Ryanair",
-				Status:  "ok",
+				Status:  okOrNoHit(len(ryanairFlights)),
 				Results: len(ryanairFlights),
 			})
 		}

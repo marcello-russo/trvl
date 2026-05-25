@@ -369,3 +369,13 @@ func ryanairEligibleOptions(opts SearchOptions) bool {
 	}
 	return true
 }
+
+// okOrNoHit returns StatusCheckedNoHit when a provider succeeded but returned
+// zero results (a definitive "checked, found nothing"), else StatusOK.
+// Distinguishing this from a failure/timeout is the evidence-envelope contract.
+func okOrNoHit(n int) string {
+	if n == 0 {
+		return models.StatusCheckedNoHit
+	}
+	return models.StatusOK
+}

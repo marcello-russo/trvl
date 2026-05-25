@@ -61,6 +61,18 @@ func (f FlightResult) PriceForRanking() float64 {
 	return f.Price
 }
 
+// HasStalePrice reports whether the cheapest-bearing source for this flight is
+// stale, so renderers can avoid superlatives ("cheapest") on aged prices.
+// A flight with no recorded sources is treated as fresh (just fetched).
+func (f FlightResult) HasStalePrice() bool {
+	for _, s := range f.Sources {
+		if s.Freshness == FreshnessStale {
+			return true
+		}
+	}
+	return false
+}
+
 // FlightSearchResult is the top-level response for a flight search.
 type FlightSearchResult struct {
 	Success  bool           `json:"success"`

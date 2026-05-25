@@ -620,8 +620,12 @@ func flightSummary(result *models.FlightSearchResult, origin, dest string) strin
 		if airline == "" && cheapest.Provider != "" {
 			airline = flightProviderSummaryLabel(cheapest.Provider)
 		}
-		summary += fmt.Sprintf(" Cheapest: %s%.0f (%s, %s).",
-			cheapest.Currency, cheapest.Price, airline, stopStr)
+		label := "Cheapest"
+		if cheapest.HasStalePrice() {
+			label = "Lowest seen (price may have changed)"
+		}
+		summary += fmt.Sprintf(" %s: %s%.0f (%s, %s).",
+			label, cheapest.Currency, cheapest.Price, airline, stopStr)
 	}
 
 	// Check for nonstop options.

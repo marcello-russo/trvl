@@ -48,3 +48,23 @@ func TestFlightSummaryNoLieOnPartial(t *testing.T) {
 		t.Errorf("complete-but-empty search should give definitive message, got %q", got)
 	}
 }
+
+// TestFlightSummary_StaleSuperlativeGuard (MIK-4952 FRESH.4): a stale cheapest
+// price must not be labeled "Cheapest:".
+func TestFlightSummary_StaleSuperlativeGuard(t *testing.T) {
+	stale := &models.FlightSearchResult{
+		Success: true, Count: 1,
+		Flights: []models.FlightResult{{
+			Price: 80, Currency: "EUR", Provider: "x", Stops: 0,
+			Legs:    []models.FlightLeg{{Airline: "X"}},
+			Sources: []models.PriceSource{{Provider: "x", Price: 80, Currency: "EUR", Freshness: models.FreshnessStale}},
+		}},
+	}
+	got := flightSummary(stale, "HEL", "CDG")
+	if strings.Contains(got, "Cheapest:") {
+		t.Errorf("stale price labeled Cheapest: %q", got)
+	}
+	if !strings.Contains(got, "may have changed") {
+		t.Errorf("stale caveat missing: %q", got)
+	}
+}
