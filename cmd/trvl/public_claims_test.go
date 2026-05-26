@@ -22,7 +22,8 @@ import (
 // The dynamic count from rootCmd.Commands() includes all cobra-registered
 // commands, but marketing materials only count functional travel commands.
 // Current exclusions: version, providers (both are utility/meta commands).
-const cliCommandCountMarketed = 51
+// Bumped 51 -> 55 with air, sun, bikes, pricetrends (functional travel commands).
+const cliCommandCountMarketed = 55
 
 var readmeToolMarkers = []string{
 	"travel",
