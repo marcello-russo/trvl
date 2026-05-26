@@ -150,3 +150,28 @@ jobs:
 
       - name: Publish to MCP Registry
         run: ./mcp-publisher publish
+
+  # Publishes the npm wrapper (trvl-mcp) which downloads the release binary on
+  # install. Opt-in: only runs when an NPM_TOKEN secret is configured, mirroring
+  # the HOMEBREW_TAP_TOKEN gating on the goreleaser job. The version is stamped
+  # from the release tag so npm never drifts from the GitHub release.
+  npm:
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    env:
+      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Stamp version from tag and publish
+        if: env.HAS_NPM_TOKEN == 'true'
+        working-directory: npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          npm version "${VERSION}" --no-git-tag-version --allow-same-version
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+          npm publish --access public
+
