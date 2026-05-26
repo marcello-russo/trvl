@@ -464,7 +464,7 @@ Returns: GO / WAIT / NO_GO verdict with parallel checks for flights, hotels, vis
 ```json
 {"name": "CORU House", "location": "Prague", "check_in": "2026-07-01", "check_out": "2026-07-05"}
 ```
-Searches all providers (Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld) using the property name as the search query, then fuzzy-matches results. Use when the user knows the exact hotel name.
+Searches all providers (Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld, HomeToGo) using the property name as the search query, then fuzzy-matches results. Use when the user knows the exact hotel name.
 
 ### search_ground — Buses, trains, ferries between cities
 ```json

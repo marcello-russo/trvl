@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-26
+
+### Added
+- **Wizz Air flight provider** — public unauthenticated `be.wizzair.com` timetable endpoint (no key); recovers another ultra-LCC that Google/GDS omit, mapped into the aggregated flight search.
+- **Transavia flight provider (opt-in)** — official public API, env-gated via `TRANSAVIA_API_KEY` (AFKLM-style opt-in); no-op when unset.
+- **HomeToGo hotel provider** — public SSR+JSON vacation-rental aggregator (no key/browser/proxy); brings whole-apartment inventory alongside the existing 5 hotel sources.
+- **Travelpayouts/Aviasales price signals (opt-in)** — `trvl pricetrends ORIGIN DEST`, env-gated via `TRAVELPAYOUTS_TOKEN`; indicative cached fares, deliberately kept out of the bookable merge. Disabled by default.
+- **Air quality** — `trvl air CITY` via Open-Meteo Air Quality (European AQI + pollutants), free, no key.
+- **Sun times** — `trvl sun CITY` via sunrise-sunset.org (sunrise/sunset/twilight), free, no key.
+- **Bike-share** — `trvl bikes CITY` via CityBikes (nearest network + live station availability), free, no key.
+- **Full per-leg flight detail in CLI tables** — aircraft type, layover-annotated route, human dates with overnight (`+1`) markers.
+- **Direct booking links** beneath flight and hotel result tables (numbered to a `#` column); hotels also link photos.
+- **Adults-only hotel filter** — `--children` auto-excludes adults-only properties for parties with children.
+
+### Changed
+- Hotel search surfaces degraded/failed providers in CLI output; Booking.com now fails loudly with an actionable cookie fix-hint instead of silently.
+
 ## [1.3.0] - 2026-05-25
 
 ### Added

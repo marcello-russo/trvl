@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-PolyForm%20NC%201.0-blue)](LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/MikkoParkkola/trvl.svg)](https://pkg.go.dev/github.com/MikkoParkkola/trvl)
 [![MCP](https://img.shields.io/badge/MCP-2025--11--25-blue)](https://modelcontextprotocol.io)
-[![Providers](https://img.shields.io/badge/providers-21-brightgreen)](https://github.com/MikkoParkkola/trvl#providers)
+[![Providers](https://img.shields.io/badge/providers-24-brightgreen)](https://github.com/MikkoParkkola/trvl#providers)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/MikkoParkkola/trvl)](https://go.dev/)
 [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_MCP-0078d4?logo=visualstudiocode)](https://insiders.vscode.dev/redirect/mcp/install?name=trvl&config=%7B%22command%22%3A%22trvl%22%2C%22args%22%3A%5B%22mcp%22%5D%7D)
 [![Install in Cursor](https://img.shields.io/badge/Cursor-Install_MCP-black?logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=trvl&config=%7B%22command%22%3A%22trvl%22%2C%22args%22%3A%5B%22mcp%22%5D%7D)
@@ -16,7 +16,7 @@
 
 Asciinema source: [`demo.cast`](demo.cast) · Demo script and claims: [`docs/DEMO.md`](docs/DEMO.md)
 
-> **The canonical travel MCP for AI assistants. 1 smart tool. 64 compatibility aliases. 21 providers. Zero API keys. One binary.**
+> **The canonical travel MCP for AI assistants. 1 smart tool. 64 compatibility aliases. 24 providers. Zero API keys. One binary.**
 >
 > Gives Claude, Cursor, Windsurf, Codex, and any MCP-compatible AI 1 smart MCP tool for your AI assistant — the `travel` router — with 64 compatibility aliases for flights, hotels, trains, buses, ferries, price alerts, award sweet spots, weather, baggage, lounges, and destination intel. Free. API-first. Also works as a standalone CLI with 51 commands.
 
@@ -382,9 +382,9 @@ For the agent-focused comparison against Google Flights, KAYAK, ChatGPT search, 
 | Flight search | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Bus/train/ferry search | ✅ (20 providers: FlixBus, RegioJet, Eurostar, DB, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Snälltåget, Tallink, Viking Line, Eckerö Line, Finnlines, Stena Line, DFDS, Ferryhopper) | ❌ | ❌ | ❌ | ❌ |
 | Price tracking | ✅ (watches with alerts) | ❌ | ❌ | ❌ | ❌ |
-| Hotel search | ✅ (5 providers: Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld) | ❌ | ❌ | ❌ | ❌ |
+| Hotel search | ✅ (6 providers: Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld, HomeToGo) | ❌ | ❌ | ❌ | ❌ |
 | Hotel search + top-N room/amenity detail | ✅ (`search_hotels_with_details`, including best-effort cancellation, board, and fee metadata) | ❌ | ✅ (web UI) | ❌ | ❌ |
-| Flight providers | ✅ (Google Flights default + Kiwi virtual-interlining merge; AFKLM Flying Blue award scanner; Skiplagged hidden-city via opt-in `--provider skiplagged`) | ✅ | ✅ | ✅ | ✅ |
+| Flight providers | ✅ (Google Flights default + Kiwi virtual-interlining merge; direct LCC fares: Ryanair + Wizz Air; AFKLM Flying Blue award scanner; Transavia opt-in; Skiplagged hidden-city via opt-in `--provider skiplagged`; Travelpayouts price signals via opt-in `pricetrends`) | ✅ | ✅ | ✅ | ✅ |
 | Hotel reviews | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Trip cost calculator | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Explore destinations | ✅ | ❌ | ✅ (web only) | ✅ (web) | ✅ |
@@ -710,10 +710,10 @@ The AI uses these to give you actionable recommendations: "Book here: [link]". N
 | | |
 |---|---|
 | **Binary** | Single static ~15MB for API-first flows. Optional protected-provider fallbacks may use local browser/python tooling. |
-| **Data** | Real-time from Google Flights + 5 hotel sources (Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld) + 20 ground providers (FlixBus, RegioJet, Eurostar, DB, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Snälltåget, Tallink, Viking Line, Eckerö Line, Finnlines, Stena Line, DFDS, Ferryhopper) + 5 free destination APIs |
+| **Data** | Real-time from Google Flights (+ Kiwi, Ryanair, Wizz Air; Transavia/Skiplagged/Travelpayouts opt-in) + 6 hotel sources (Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld, HomeToGo) + 20 ground providers (FlixBus, RegioJet, Eurostar, DB, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Snälltåget, Tallink, Viking Line, Eckerö Line, Finnlines, Stena Line, DFDS, Ferryhopper) + free destination/enrichment APIs (weather, air quality, sun times, bike-share, holidays, currency) |
 | **Auth** | No personal API keys required. Two providers (NS, Digitransit/VR) use public keys embedded in the binary. Optional browser/cookie fallbacks are available for protected providers when explicitly enabled. |
 | **MCP** | Full v2025-11-25 — 1 smart MCP tool, 64 compatibility aliases (incl. 4 profile aliases, 3 price watch aliases, provider health, award sweet-spot scanning), 7 prompts, resources, structured content, progress notifications, resource subscriptions, tool description orchestration |
-| **CLI** | 51 commands (+ 7 watch subcommands) with table/JSON output, color, shell completion |
+| **CLI** | 55 commands (+ 7 watch subcommands) with table/JSON output, color, shell completion |
 | **Booking links** | Every flight and hotel result includes a direct Google booking link |
 | **Travel hacks** | 37 detectors (throwaway, hidden-city, positioning, ferry, multi-modal, stopover, date-flex, error fare, back-to-back, rail competition, and more) |
 | **Personal profile** | Learns from your booking history (email parsing + LLM). Remembers FF status, luggage needs, favourite properties, departure preferences, travel hacks used, accommodation preferences, family composition. Pre-search interviews skip questions the profile already answers. |
