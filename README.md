@@ -19,6 +19,8 @@ Asciinema source: [`demo.cast`](demo.cast) · Demo script and claims: [`docs/DEM
 > **The canonical travel MCP for AI assistants. 1 smart tool. 64 compatibility aliases. 21 providers. Zero API keys. One binary.**
 >
 > Gives Claude, Cursor, Windsurf, Codex, and any MCP-compatible AI 1 smart MCP tool for your AI assistant — the `travel` router — with 64 compatibility aliases for flights, hotels, trains, buses, ferries, price alerts, award sweet spots, weather, baggage, lounges, and destination intel. Free. API-first. Also works as a standalone CLI with 55 commands.
+>
+> **Token-efficient by design:** advertising 1 smart tool instead of 64 keeps the `tools/list` payload at ~378 tokens instead of ~33,500 — a **98.9% smaller context footprint**, ~33K tokens handed back to your assistant. The 64 aliases stay callable via the `intent` field (set `TRVL_MCP_TOOL_MODE=legacy` to advertise all 64).
 
 **For**: AI-assistant users who book ≥4 trips/yr · AI-app builders integrating travel intent · devs shopping MCP registries.
 **Not for**: humans booking via a website (use Google Flights) · travel-agency SaaS shoppers (we are not a hosted product).
