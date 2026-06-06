@@ -23,14 +23,21 @@ type HTTPServer struct {
 	server *Server
 	host   string
 	port   int
-	token  string
+	auth   *HTTPAuth
 }
 
 // HTTPServerOptions configures the HTTP MCP transport.
 type HTTPServerOptions struct {
-	Host  string
-	Port  int
-	Token string
+	Host                  string
+	Port                  int
+	Token                 string
+	ReadToken             string
+	WriteToken            string
+	OAuthIntrospectionURL string
+	OAuthClientID         string
+	OAuthClientSecret     string
+	OAuthAudience         string
+	HTTPClient            *http.Client
 }
 
 // NewHTTPServer creates an HTTP transport for the MCP server on the given port.
@@ -48,7 +55,7 @@ func NewHTTPServerWithOptions(opts HTTPServerOptions) *HTTPServer {
 		server: NewServer(),
 		host:   host,
 		port:   opts.Port,
-		token:  strings.TrimSpace(opts.Token),
+		auth:   NewHTTPAuth(opts),
 	}
 }
 
@@ -87,7 +94,8 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.authorize(r) {
+	access, ok := h.authorize(r)
+	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -118,6 +126,18 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if errResp := h.authorizeJSONRPC(&req, access); errResp != nil {
+		slogHTTPAuthDenied(req.Method, errResp.Message)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(Response{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   errResp,
+		})
+		return
+	}
+
 	resp := h.server.HandleRequest(&req)
 	if resp == nil {
 		// Notification — return 204 No Content.
@@ -129,16 +149,33 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func (h *HTTPServer) authorize(r *http.Request) bool {
-	if h.token == "" {
-		return true
+func (h *HTTPServer) authorize(r *http.Request) (RequestAccess, bool) {
+	if h.auth == nil || !h.auth.Configured() {
+		return FullAccess("anonymous", "disabled"), true
 	}
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
 	const prefix = "Bearer "
 	if !strings.HasPrefix(auth, prefix) {
-		return false
+		return RequestAccess{}, false
 	}
-	return strings.TrimSpace(strings.TrimPrefix(auth, prefix)) == h.token
+	return h.auth.Authenticate(r.Context(), strings.TrimSpace(strings.TrimPrefix(auth, prefix)))
+}
+
+func (h *HTTPServer) authorizeJSONRPC(req *Request, access RequestAccess) *Error {
+	if !access.CanRead() {
+		return &Error{Code: -32001, Message: "permission denied: token requires trvl:read scope"}
+	}
+	if req.Method != "tools/call" {
+		return nil
+	}
+	tool, requiresWrite, ok := h.server.toolWriteRequirement(req)
+	if !ok {
+		return nil
+	}
+	if requiresWrite && !access.CanWrite() {
+		return &Error{Code: -32001, Message: fmt.Sprintf("permission denied: tool %s requires trvl:write scope", tool)}
+	}
+	return nil
 }
 
 func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -173,28 +210,48 @@ func isLocalhostOrigin(origin string) bool {
 // Coverage exclusion: blocking HTTP server entry point.
 // Calls ListenAndServe, whose handler logic is tested via httptest in server_extra_test.go.
 func RunHTTP(host string, port int, token string) error {
+	return RunHTTPWithOptions(HTTPServerOptions{Host: host, Port: port, Token: token})
+}
+
+func RunHTTPWithOptions(opts HTTPServerOptions) error {
 	generatedToken := false
-	if strings.TrimSpace(token) == "" {
-		token = strings.TrimSpace(os.Getenv("TRVL_MCP_TOKEN"))
+	if strings.TrimSpace(opts.Token) == "" {
+		opts.Token = strings.TrimSpace(os.Getenv("TRVL_MCP_TOKEN"))
 	}
-	if strings.TrimSpace(token) == "" {
+	if strings.TrimSpace(opts.ReadToken) == "" {
+		opts.ReadToken = strings.TrimSpace(os.Getenv("TRVL_MCP_READ_TOKEN"))
+	}
+	if strings.TrimSpace(opts.WriteToken) == "" {
+		opts.WriteToken = strings.TrimSpace(os.Getenv("TRVL_MCP_WRITE_TOKEN"))
+	}
+	if strings.TrimSpace(opts.OAuthIntrospectionURL) == "" {
+		opts.OAuthIntrospectionURL = strings.TrimSpace(os.Getenv("TRVL_MCP_OAUTH_INTROSPECTION_URL"))
+	}
+	if strings.TrimSpace(opts.OAuthClientID) == "" {
+		opts.OAuthClientID = strings.TrimSpace(os.Getenv("TRVL_MCP_OAUTH_CLIENT_ID"))
+	}
+	if strings.TrimSpace(opts.OAuthClientSecret) == "" {
+		opts.OAuthClientSecret = strings.TrimSpace(os.Getenv("TRVL_MCP_OAUTH_CLIENT_SECRET"))
+	}
+	if strings.TrimSpace(opts.OAuthAudience) == "" {
+		opts.OAuthAudience = strings.TrimSpace(os.Getenv("TRVL_MCP_OAUTH_AUDIENCE"))
+	}
+	if !NewHTTPAuth(opts).Configured() {
 		generated, err := generateMCPToken()
 		if err != nil {
 			return fmt.Errorf("generate MCP HTTP token: %w", err)
 		}
-		token = generated
+		opts.Token = generated
 		generatedToken = true
 	}
 	if generatedToken {
-		log.Printf("trvl MCP generated HTTP bearer token: %s", token)
+		log.Printf("trvl MCP generated HTTP bearer token: %s", opts.Token)
+	} else if strings.TrimSpace(opts.OAuthIntrospectionURL) != "" {
+		log.Printf("trvl MCP HTTP OAuth introspection auth enabled")
 	} else {
 		log.Printf("trvl MCP HTTP auth enabled")
 	}
-	return NewHTTPServerWithOptions(HTTPServerOptions{
-		Host:  host,
-		Port:  port,
-		Token: token,
-	}).ListenAndServe()
+	return NewHTTPServerWithOptions(opts).ListenAndServe()
 }
 
 func generateMCPToken() (string, error) {

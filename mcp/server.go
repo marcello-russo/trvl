@@ -60,6 +60,7 @@ var serverVersion = "dev"
 // Server handles MCP JSON-RPC requests.
 type Server struct {
 	tools              []ToolDef
+	toolDefs           map[string]ToolDef
 	handlers           map[string]ToolHandler
 	prompts            []PromptDef
 	resources          []ResourceDef

@@ -185,13 +185,9 @@ Token bucket: 10 requests/second (matching fli's rate limit). Configurable via `
 
 Two transport modes:
 - **stdio**: `trvl mcp` — for Claude Code integration
-- **HTTP**: `trvl mcp --http --port 8000` — loopback by default with bearer-token auth; pass `--host` explicitly for gateway or remote use
+- **HTTP**: `trvl mcp --http --port 8000` — loopback by default with bearer-token auth; pass `--host` explicitly for gateway or remote use. HTTP supports a generated local token, static read/write bearer tokens, or OAuth 2.1 access-token introspection with `trvl:read` / `trvl:write` scopes.
 
-Four tools exposed:
-1. `search_flights` — search flights on a date
-2. `search_dates` — find cheapest dates in a range
-3. `search_hotels` — search hotels by location
-4. `hotel_prices` — get prices for a specific hotel
+One compact `travel` tool is advertised by default, with the legacy compatibility aliases still callable directly. `TRVL_MCP_TOOL_MODE=legacy` restores the full advertised list for clients that need explicit tools.
 
 ## 5. Tech Selection Rationale
 
@@ -347,6 +343,19 @@ trvl mcp
 
 # HTTP mode (for gateway)
 TRVL_MCP_TOKEN="$(openssl rand -base64 32)" trvl mcp --http --host 127.0.0.1 --port 8000
+
+# Scoped HTTP mode
+TRVL_MCP_READ_TOKEN="$(openssl rand -base64 32)" \
+TRVL_MCP_WRITE_TOKEN="$(openssl rand -base64 32)" \
+trvl mcp --http --host 0.0.0.0 --port 8000
+
+# OAuth 2.1 resource-server mode. The OAuth provider/gateway performs
+# Authorization Code + PKCE; trvl validates access tokens by introspection.
+trvl mcp --http --host 127.0.0.1 --port 8000 \
+  --oauth-introspection-url https://auth.example.com/oauth2/introspect \
+  --oauth-client-id trvl-resource-server \
+  --oauth-client-secret "$TRVL_OAUTH_INTROSPECTION_SECRET" \
+  --oauth-audience trvl-mcp
 ```
 
 ## 8. Acceptance Criteria

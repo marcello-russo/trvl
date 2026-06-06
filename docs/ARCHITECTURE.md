@@ -281,7 +281,7 @@ MCP (Model Context Protocol) is how AI assistants call external tools. trvl as a
 - **AI-native**: Claude, Cursor, Windsurf, and any MCP client can search flights, hotels, and trains natively. The AI decides when to search, what parameters to use, and how to present results.
 - **Structured content**: MCP's `structuredContent` returns typed JSON alongside human-readable summaries. The AI gets machine-parseable data; the user gets formatted text. Both from one call.
 - **Progressive disclosure**: Every response includes suggestions for follow-up searches ("Try nearby airports", "Check flexible dates"). The AI can chain these automatically.
-- **No integration work**: Adding trvl to any MCP client is one config line. No REST API to host, no webhook to configure, no OAuth to set up.
+- **No integration work for local mode**: Adding trvl to any MCP client is one config line. Local stdio needs no REST API, webhook, or OAuth setup. Remote HTTP mode is explicit and can use scoped bearer tokens or OAuth 2.1 introspection when a gateway/provider handles Authorization Code + PKCE.
 
 trvl also works as a standalone CLI (22 commands) for users who prefer the terminal or want to script searches.
 

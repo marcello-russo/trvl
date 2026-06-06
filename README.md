@@ -751,6 +751,40 @@ trvl is part of a suite of MCP tools:
 | [nab](https://github.com/MikkoParkkola/nab) | Web content extraction — fetch any URL with cookies + anti-bot bypass |
 | [axterminator](https://github.com/MikkoParkkola/axterminator) | macOS GUI automation — 35 MCP tools via Accessibility API |
 
+## HTTP / Remote MCP Mode
+
+Local stdio remains the default and safest transport. `trvl mcp --http` binds
+to `127.0.0.1` by default, requires `Authorization: Bearer <token>`, and
+generates a random local token at startup when no token is configured.
+
+Remote exposure requires an explicit host and auth configuration:
+
+```bash
+# Local gateway, read/write static token
+TRVL_MCP_TOKEN="$(openssl rand -base64 32)" trvl mcp --http --host 127.0.0.1 --port 8000
+
+# Remote gateway, separate read-only and read/write tokens
+TRVL_MCP_READ_TOKEN="$(openssl rand -base64 32)" \
+TRVL_MCP_WRITE_TOKEN="$(openssl rand -base64 32)" \
+trvl mcp --http --host 0.0.0.0 --port 8000
+```
+
+OAuth 2.1 deployments should put an OAuth provider or gateway in front of
+trvl. The provider handles Authorization Code + PKCE; trvl validates the
+resulting access token through introspection and enforces scopes:
+
+```bash
+trvl mcp --http --host 127.0.0.1 --port 8000 \
+  --oauth-introspection-url https://auth.example.com/oauth2/introspect \
+  --oauth-client-id trvl-resource-server \
+  --oauth-client-secret "$TRVL_OAUTH_INTROSPECTION_SECRET" \
+  --oauth-audience trvl-mcp
+```
+
+Use `trvl:read` for read-only tools and `trvl:write` for tools that mutate
+local trips, preferences, watches, providers, or traveller workspace data.
+Write scope implies read scope.
+
 ## Troubleshooting
 
 **MCP server not showing tools?** Restart your AI client after running `trvl mcp install`. Verify the binary is on your `$PATH` with `which trvl`.
@@ -761,7 +795,7 @@ trvl is part of a suite of MCP tools:
 
 **Hotel search shows 0 results?** Check your dates — Google Hotels requires check-in in the future and at least 1 night. Try: `trvl hotels "London" --checkin 2026-07-01 --checkout 2026-07-03`.
 
-**MCP server crashes on startup?** Run `trvl mcp` directly in your terminal to see the error. Common cause: port conflict when using `--http`. Try a different port with `--port 8081`. HTTP mode listens on `127.0.0.1` by default and requires `Authorization: Bearer <token>`; set `TRVL_MCP_TOKEN` or use the generated startup token.
+**MCP server crashes on startup?** Run `trvl mcp` directly in your terminal to see the error. Common cause: port conflict when using `--http`. Try a different port with `--port 8081`. HTTP mode listens on `127.0.0.1` by default and requires `Authorization: Bearer <token>`; set `TRVL_MCP_TOKEN`, scoped `TRVL_MCP_READ_TOKEN` / `TRVL_MCP_WRITE_TOKEN`, OAuth introspection env vars, or use the generated startup token.
 
 ## License
 
