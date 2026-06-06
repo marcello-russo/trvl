@@ -18,7 +18,7 @@ func travelTool() ToolDef {
 		Title: "Travel Smart Router",
 		Description: "Primary trvl MCP tool. Route natural-language or structured travel requests " +
 			"to the right capability while keeping the advertised tool list compact. Use query for " +
-			"plain-language requests, intent for a family such as flights, hotels, ground, trip, " +
+			"plain-language requests, intent for a family such as flights, hotels, cars, ground, trip, " +
 			"watches, preferences, or providers, and params for the target tool arguments. Exact " +
 			"legacy tool names such as search_flights, search_hotels, search_ground, watch_price, " +
 			"update_preferences, or configure_provider are accepted as intent values and remain " +
@@ -210,6 +210,12 @@ var smartIntentAliases = map[string]string{
 	"hotels":             "search_hotels",
 	"hotel_search":       "search_hotels",
 	"accommodation":      "search_hotels",
+	"car":                "search_cars",
+	"cars":               "search_cars",
+	"rental_car":         "search_cars",
+	"rental_cars":        "search_cars",
+	"car_rental":         "search_cars",
+	"car_rentals":        "search_cars",
 	"ground":             "search_ground",
 	"ground_transport":   "search_ground",
 	"train":              "search_ground",
@@ -263,6 +269,8 @@ func inferTravelTarget(text, action string) string {
 		return "trip_workspace"
 	case containsAny(token, "hotel", "hotels", "accommodation", "lodging", "stay", "stays", "room", "rooms", "property"):
 		return hotelTarget(token)
+	case containsAny(token, "rental_car", "rental_cars", "car_rental", "car_rentals", "hire_car", "hire_cars", "vehicle_rental"):
+		return "search_cars"
 	case containsAny(token, "ground", "train", "trains", "bus", "buses", "ferry", "ferries", "night_train", "transfer", "transfers"):
 		return groundTarget(token)
 	case containsAny(token, "route", "multimodal"):

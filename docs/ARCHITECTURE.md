@@ -28,6 +28,9 @@ cmd/trvl                          CLI entry point (cobra)
   |     +-- trainline.go          Trainline aggregated rail API (browser cookie auth)
   |     +-- renfe.go              Renfe Spanish Railways (Playwright browser scraper)
   |     +-- transitous.go         Transitous/MOTIS2 (routing.spicebus.org)
+  |
+  +-- internal/cars               Rental car search surface and setup-aware provider statuses
+  |     +-- search.go             Optional Skyscanner Car Hire integration
   |     +-- tallink.go            Tallink/Silja Line REST API (book.tallink.com) — live prices
   |     +-- vikingline.go         Viking Line reference schedule — Distribusion API pending
   |     +-- eckeroline.go         Eckerö Line Magento AJAX API (getdepartures) — live prices
@@ -73,7 +76,7 @@ cmd/trvl                          CLI entry point (cobra)
   +-- internal/cookies            Browser cookie loader for CAPTCHA-protected providers (Trainline, Eurostar, SNCF)
   +-- internal/jsonutil           Safe nested JSON array access
 
-mcp/                              MCP server (1 advertised smart tool + 64 aliases, stdio + HTTP)
+mcp/                              MCP server (1 advertised smart tool + 65 aliases, stdio + HTTP)
   +-- internal/flights
   +-- internal/hotels
   +-- internal/ground

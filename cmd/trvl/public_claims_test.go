@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MikkoParkkola/trvl/internal/cars"
 	"github.com/MikkoParkkola/trvl/internal/ground"
 	"github.com/MikkoParkkola/trvl/internal/trip"
 	trvlmcp "github.com/MikkoParkkola/trvl/mcp"
@@ -23,7 +24,8 @@ import (
 // commands, but marketing materials only count functional travel commands.
 // Current exclusions: version, providers (both are utility/meta commands).
 // Bumped 51 -> 55 with air, sun, bikes, pricetrends (functional travel commands).
-const cliCommandCountMarketed = 55
+// Bumped 55 -> 56 with cars (rental car search; functional travel command).
+const cliCommandCountMarketed = 56
 
 var readmeToolMarkers = []string{
 	"travel",
@@ -44,6 +46,7 @@ var readmeToolMarkers = []string{
 	"local_events",
 	"search_ground",
 	"search_airport_transfers",
+	"search_cars",
 	"search_restaurants",
 	"search_deals",
 	"plan_trip",
@@ -93,6 +96,9 @@ func marketedTransportProviderCount() int {
 		seen[provider] = struct{}{}
 	}
 	for _, provider := range trip.MarketedAdditionalProviderNames() {
+		seen[provider] = struct{}{}
+	}
+	for _, provider := range cars.MarketedProviderNames() {
 		seen[provider] = struct{}{}
 	}
 	return len(seen)
@@ -175,7 +181,7 @@ func TestPublicDocsAdvertiseCurrentCounts(t *testing.T) {
 				fmt.Sprintf("%d commands (+ %d watch subcommands)", cliCommandCount, watchSubcommandCount),
 				fmt.Sprintf("Full JSON Schema validation for the `travel` smart router and all %d compatibility tool responses", compatAliasCount),
 				"install the bundled skill that teaches Claude how to use trvl",
-				fmt.Sprintf("trvl searches %d ground transport providers in parallel, covering most of Europe. Airport transfers add taxi estimates on top of that, so trvl exposes %d transport providers overall:", groundProviderCount, totalProviderCount),
+				fmt.Sprintf("trvl searches %d ground transport providers in parallel, covering most of Europe. Airport transfers add taxi estimates and rental cars add optional Skyscanner Car Hire, so trvl exposes %d transport providers overall:", groundProviderCount, totalProviderCount),
 				fmt.Sprintf("Searches %d providers in parallel:", groundProviderCount),
 			},
 			forbidden: []string{
