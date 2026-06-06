@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/MikkoParkkola/trvl/internal/models"
@@ -98,6 +99,19 @@ func GetRoomAvailabilityWithOpts(ctx context.Context, opts RoomSearchOptions) (*
 		opts.Location = entityLocation
 	}
 
+	// Fetch Booking.com rooms to provide room-level data alongside Google's.
+	// Runs synchronously before the fallback so Booking data is available
+	// regardless of whether the Google entity page returns room data.
+	var bookingRooms []RoomType
+	if opts.BookingURL != "" {
+		br, brErr := FetchBookingRooms(ctx, opts.BookingURL, opts.CheckIn, opts.CheckOut, opts.Currency)
+		if brErr != nil {
+			slog.Debug("booking rooms fetch failed", "error", brErr)
+		} else {
+			bookingRooms = br
+		}
+	}
+
 	// Fallback: search for the hotel on the search page by location extracted
 	// from the hotel ID's geocoded area. The search page still has inline
 	// AF_initDataCallback data.
@@ -105,15 +119,9 @@ func GetRoomAvailabilityWithOpts(ctx context.Context, opts RoomSearchOptions) (*
 		rooms, hotelName = trySearchPageFallback(ctx, opts)
 	}
 
-	// Enrich with Booking.com room data when a booking URL is provided.
-	if opts.BookingURL != "" {
-		bookingRooms, err := FetchBookingRooms(ctx, opts.BookingURL, opts.CheckIn, opts.CheckOut, opts.Currency)
-		if err != nil {
-			// Non-fatal: log and continue with Google rooms only.
-			_ = err // logged inside FetchBookingRooms
-		} else {
-			rooms = mergeRoomTypes(rooms, bookingRooms)
-		}
+	// Merge Booking.com rooms with Google rooms if both are available.
+	if len(bookingRooms) > 0 {
+		rooms = mergeRoomTypes(rooms, bookingRooms)
 	}
 
 	return &RoomAvailability{
@@ -189,7 +197,10 @@ func trySearchPageFallback(ctx context.Context, opts RoomSearchOptions) ([]RoomT
 		return nil, ""
 	}
 
-	// Find target hotel by ID.
+	// Find target hotel by ID first, then by name as fallback.
+	// Google Hotels uses different ID formats on the search page vs
+	// the entity page, so strict ID matching often fails for raw IDs
+	// passed from the CLI or MCP tools.
 	var hotel *models.HotelResult
 	for i := range result.Hotels {
 		if result.Hotels[i].HotelID == opts.HotelID {
@@ -198,7 +209,10 @@ func trySearchPageFallback(ctx context.Context, opts RoomSearchOptions) ([]RoomT
 		}
 	}
 	if hotel == nil {
-		return nil, ""
+		// ID matching failed — try name matching using the location hint.
+		// The location often contains the hotel name (e.g. "Hotel Lutetia Paris")
+		// which can be used as a fuzzy match query.
+		hotel = findBestNameMatch(result.Hotels, opts.Location)
 	}
 
 	var rooms []RoomType
@@ -206,7 +220,7 @@ func trySearchPageFallback(ctx context.Context, opts RoomSearchOptions) ([]RoomT
 		rooms = append(rooms, RoomType{
 			Name:     "Standard Room",
 			Price:    hotel.Price,
-			Currency: hotel.Currency,
+			Currency: opts.Currency,
 			Provider: providerFromSources(hotel),
 		})
 	}
@@ -217,7 +231,7 @@ func trySearchPageFallback(ctx context.Context, opts RoomSearchOptions) ([]RoomT
 			rooms = append(rooms, RoomType{
 				Name:     "Standard Room",
 				Price:    src.Price,
-				Currency: src.Currency,
+				Currency: opts.Currency,
 				Provider: src.Provider,
 			})
 		}
