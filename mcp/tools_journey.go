@@ -101,8 +101,9 @@ func handleJourney(ctx context.Context, args map[string]any, elicit ElicitFunc, 
 		summary += "\n\nGround leg scheduled with the best-value option; the full comparison is attached so you can choose another."
 	}
 
-	content := []ContentBlock{
-		{Type: "text", Text: summary, Annotations: &ContentAnnotation{Audience: []string{"user"}, Priority: 1.0}},
+	content, err := buildAnnotatedContentBlocks(summary, schedule)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// Optional calendar handoff (F.1): when as_ics is set, attach an iCalendar

@@ -7,10 +7,12 @@ import (
 	"testing"
 
 	"github.com/MikkoParkkola/trvl/internal/models"
+	"github.com/MikkoParkkola/trvl/internal/testutil"
 	"github.com/MikkoParkkola/trvl/internal/trip"
 )
 
 func TestHandleJourney_Success(t *testing.T) {
+	t.Parallel()
 	args := map[string]any{
 		"airport_code":    "HEL",
 		"date":            "2026-07-18",
@@ -28,6 +30,10 @@ func TestHandleJourney_Success(t *testing.T) {
 	if len(content) == 0 {
 		t.Fatal("expected user-facing content")
 	}
+	// Verify assistant block has JSON (more than just a summary)
+	if len(content) < 2 || content[1].Text == "" {
+		t.Fatal("expected assistant-facing content block with JSON data")
+	}
 
 	data, _ := json.Marshal(structured)
 	var got map[string]any
@@ -43,6 +49,7 @@ func TestHandleJourney_Success(t *testing.T) {
 }
 
 func TestHandleJourney_RequiresGroundChoice(t *testing.T) {
+	t.Parallel()
 	args := map[string]any{
 		"airport_code":   "HEL",
 		"date":           "2026-07-18",
@@ -55,6 +62,7 @@ func TestHandleJourney_RequiresGroundChoice(t *testing.T) {
 }
 
 func TestHandleJourney_BadDate(t *testing.T) {
+	t.Parallel()
 	args := map[string]any{
 		"airport_code":   "HEL",
 		"date":           "July 18",
@@ -73,6 +81,7 @@ func TestHandleJourney_BadDate(t *testing.T) {
 // TestHandleJourney_AsICS verifies the calendar handoff: as_ics attaches an
 // iCalendar leave-home event with a reminder alarm to the response.
 func TestHandleJourney_AsICS(t *testing.T) {
+	t.Parallel()
 	args := map[string]any{
 		"airport_code":   "HEL",
 		"date":           "2026-07-18",
@@ -119,6 +128,7 @@ func TestPlanJourney_CallableViaIntent_NotAdvertised(t *testing.T) {
 // and no explicit ground option, plan_journey searches the home->airport leg
 // (stubbed seam), schedules from the best-value option, and returns the card.
 func TestHandleJourney_AutoStitchOrigin(t *testing.T) {
+	t.Parallel()
 	orig := journeyTransferSearch
 	t.Cleanup(func() { journeyTransferSearch = orig })
 	journeyTransferSearch = func(ctx context.Context, in trip.AirportTransferInput) (*trip.AirportTransferResult, error) {
@@ -157,6 +167,7 @@ func TestHandleJourney_AutoStitchOrigin(t *testing.T) {
 }
 
 func TestHandleJourney_NoGroundNoOrigin_Errors(t *testing.T) {
+	t.Parallel()
 	args := map[string]any{
 		"airport_code":   "HEL",
 		"date":           "2026-07-18",
@@ -165,5 +176,50 @@ func TestHandleJourney_NoGroundNoOrigin_Errors(t *testing.T) {
 	}
 	if _, _, err := handleJourney(context.Background(), args, nil, nil, nil); err == nil {
 		t.Fatal("expected error when neither ground option nor origin is provided")
+	}
+}
+
+func TestHandleJourney_MissingParams(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args map[string]any
+	}{
+		{"empty", map[string]any{}},
+		{"missing_airport_code", map[string]any{"date": "2026-07-01", "departure_time": "14:00"}},
+		{"missing_date", map[string]any{"airport_code": "FCO", "departure_time": "14:00"}},
+		{"missing_departure_time", map[string]any{"airport_code": "FCO", "date": "2026-07-01"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := handleJourney(context.Background(), tt.args, nil, nil, nil)
+			if err == nil {
+				t.Error("expected error for missing params")
+			}
+		})
+	}
+}
+
+func TestHandleJourney_ContentHasJSON(t *testing.T) {
+	t.Parallel()
+	testutil.RequireLiveProbe(t)
+	args := map[string]any{
+		"airport_code":    "FCO",
+		"date":            "2026-07-01",
+		"departure_time":  "14:00",
+		"ground_minutes":  60,
+		"ground_mode":     "taxi",
+		"ground_label":    "Home to Airport",
+	}
+	content, _, err := handleJourney(context.Background(), args, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(content) < 2 {
+		t.Fatalf("expected 2+ content blocks, got %d", len(content))
+	}
+	assistantBlock := content[1]
+	if assistantBlock.Text == "" {
+		t.Fatal("assistant block has empty text")
 	}
 }
