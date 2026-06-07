@@ -83,9 +83,7 @@ done
 - watch_price(type, origin, destination, date, target_price, [return_date, location, check_in, check_out, currency])
   - Create a price watch. Monitors flight or hotel prices and tracks history. Returns current price vs target.
 - list_watches()
-  - Show all active price watches with status (watching/triggered/expired) and price history.
-- list_watches()
-  - Re-check all active watches against current prices. Returns which prices dropped below target.
+  - Show all active price watches with route, target price, last known price, and history sparkline.
 - provider_health()
   - Show per-provider health summary: total calls, success rate, average latency, last error. Read from ~/.trvl/health.jsonl.
 - plan_flight_bundle(origin, destination, departure_date, [return_date])

@@ -12,7 +12,6 @@ allowed-tools:
   - mcp__trvl__watch_room_availability
   - mcp__trvl__watch_opportunities
   - mcp__trvl__list_watches
-  - mcp__trvl__list_watches
   - mcp__trvl__list_opportunity_watches
   - mcp__gateway__gateway_invoke
 ---
