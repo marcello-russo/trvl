@@ -228,7 +228,7 @@ func handleSearchAirportTransfers(ctx context.Context, args map[string]any, elic
 	}
 	response := airportTransferResponse{AirportTransferResult: result, Comparison: comparison}
 
-	content, err := buildAnnotatedContentBlocks(summary, result)
+	content, err := buildAnnotatedContentBlocks(summary, response)
 	if err != nil {
 		return nil, nil, err
 	}

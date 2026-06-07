@@ -59,3 +59,29 @@ func TestHandleSearchGround_ContentHasJSON(t *testing.T) {
 		t.Fatal("expected structured result")
 	}
 }
+
+func TestHandleSearchAirportTransfers_ContentMatchesStructured(t *testing.T) {
+	t.Parallel()
+	testutil.RequireLiveProbe(t)
+	args := map[string]any{
+		"airport_code": "FCO",
+		"destination":  "Rome Termini",
+		"date":         "2026-07-01",
+	}
+	content, structured, err := handleSearchAirportTransfers(context.Background(), args, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(content) < 2 {
+		t.Fatalf("expected 2+ content blocks, got %d", len(content))
+	}
+	// Verify assistant block has JSON (not placeholder)
+	assistantBlock := content[1]
+	if assistantBlock.Text == "Structured data attached." {
+		t.Fatal("assistant block still has placeholder text")
+	}
+	// Structured should be airportTransferResponse (value type, not pointer)
+	if _, ok := structured.(airportTransferResponse); !ok {
+		t.Fatalf("structured type = %T, want airportTransferResponse", structured)
+	}
+}
