@@ -1,6 +1,6 @@
 ---
 name: trvl
-description: "AI Travel Agent — flights, hotels, buses, trains, ferries, night trains, restaurants, price tracking, destinations, hacks, visas, points/award redemptions, airport lounges, traveller profile. Searches Google Flights/Hotels, Skiplagged, Kiwi, AFKLM Offers v3, Trivago, Airbnb, Booking.com, Hostelworld, Ferryhopper, FlixBus, RegioJet, Eurostar/Snap, Deutsche Bahn, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Snälltåget, Tallink, Viking Line, Eckerö Line, Finnlines, Stena Line, DFDS in real-time. 1 smart MCP tool, 65 compatibility aliases, 37 hack detectors. No API keys required by default."
+description: "AI Travel Agent — flights, hotels, buses, trains, ferries, night trains, restaurants, price tracking, destinations, hacks, visas, points/award redemptions, airport lounges, traveller profile. Searches Google Flights/Hotels, Skiplagged, Kiwi, AFKLM Offers v3, Trivago, Airbnb, Booking.com, Hostelworld, Ferryhopper, FlixBus, RegioJet, Eurostar/Snap, Deutsche Bahn, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Snälltåget, Tallink, Viking Line, Eckerö Line, Finnlines, Stena Line, DFDS in real-time. 1 smart MCP tool, 64 compatibility aliases, 37 hack detectors. No API keys required by default."
 triggers:
   - flight
   - flights
@@ -56,7 +56,7 @@ allowed-tools:
 
 # trvl — AI Travel Agent
 
-> **1 smart MCP tool, 65 compatibility aliases, 56 CLI commands, 37 hack detectors, 22 providers.** Single-binary travel agent for any AI assistant. No API keys required by default.
+> **1 smart MCP tool, 64 compatibility aliases, 56 CLI commands, 37 hack detectors, 22 providers.** Single-binary travel agent for any AI assistant. No API keys required by default.
 
 ## LOAD PROFILE — ALWAYS FIRST
 
@@ -79,7 +79,7 @@ From? · To? · When (date/window)? · Flex? · Travelers? · Budget? · Carry-o
 
 ---
 
-## CORE TOOL ROUTING (primary `travel` tool + 65 compatibility aliases)
+## CORE TOOL ROUTING (primary `travel` tool + 64 compatibility aliases)
 
 Use `travel` for new calls. Put the target family or exact alias in `intent`,
 state-changing verbs in `action`, and the old tool arguments in `params`.

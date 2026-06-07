@@ -16,11 +16,11 @@
 
 Asciinema source: [`demo.cast`](demo.cast) · Demo script and claims: [`docs/DEMO.md`](docs/DEMO.md)
 
-> **The canonical travel MCP for AI assistants. 1 smart tool. 65 compatibility aliases. 22 providers. Zero API keys. One binary.**
+> **The canonical travel MCP for AI assistants. 1 smart tool. 64 compatibility aliases. 22 providers. Zero API keys. One binary.**
 >
-> Gives Claude, Cursor, Windsurf, Codex, and any MCP-compatible AI 1 smart MCP tool for your AI assistant — the `travel` router — with 65 compatibility aliases for flights, hotels, rental cars, trains, buses, ferries, price alerts, award sweet spots, weather, baggage, lounges, and destination intel. Free. API-first. Also works as a standalone CLI with 56 commands.
+> Gives Claude, Cursor, Windsurf, Codex, and any MCP-compatible AI 1 smart MCP tool for your AI assistant — the `travel` router — with 64 compatibility aliases for flights, hotels, rental cars, trains, buses, ferries, price alerts, award sweet spots, weather, baggage, lounges, and destination intel. Free. API-first. Also works as a standalone CLI with 56 commands.
 >
-> **Token-efficient by design:** advertising 1 smart tool instead of 65 keeps the `tools/list` payload at ~378 tokens instead of ~33,500 — a **98.9% smaller context footprint**, ~33K tokens handed back to your assistant. The 65 aliases stay callable via the `intent` field (set `TRVL_MCP_TOOL_MODE=legacy` to advertise all 65).
+> **Token-efficient by design:** advertising 1 smart tool instead of 64 keeps the `tools/list` payload at ~378 tokens instead of ~33,500 — a **98.9% smaller context footprint**, ~33K tokens handed back to your assistant. The 64 aliases stay callable via the `intent` field (set `TRVL_MCP_TOOL_MODE=legacy` to advertise all 64).
 
 **For**: AI-assistant users who book ≥4 trips/yr · AI-app builders integrating travel intent · devs shopping MCP registries.
 **Not for**: humans booking via a website (use Google Flights) · travel-agency SaaS shoppers (we are not a hosted product).
@@ -159,7 +159,7 @@ The profile makes every subsequent search smarter — it skips questions it alre
 
 ### 5. Ask your AI to search
 
-That's it. Your AI assistant now has 1 smart travel tool available. The old 65 tool names remain callable as compatibility aliases, and `TRVL_MCP_TOOL_MODE=legacy` restores the old advertised list for clients that require it. Just ask naturally:
+That's it. Your AI assistant now has 1 smart travel tool available. The old 64 tool names remain callable as compatibility aliases, and `TRVL_MCP_TOOL_MODE=legacy` restores a smaller advertised list for clients that require it. Just ask naturally:
 
 - *"Search flights from JFK to Tokyo on July 1st, business class"*
 - *"Find hotels in Paris for July 1-5, at least 4 stars"*
@@ -288,7 +288,7 @@ That's it. Your AI assistant now has 1 smart travel tool available. The old 65 t
 |---------|---------|
 | **Structured content** | Typed JSON (`structuredContent`) alongside human-readable summaries |
 | **Content annotations** | `audience: ["user"]` for summaries, `audience: ["assistant"]` for data |
-| **Output schemas** | Full JSON Schema validation for the `travel` smart router and all 65 compatibility tool responses |
+| **Output schemas** | Full JSON Schema validation for the `travel` smart router and all 64 compatibility tool responses |
 | **Prompts** | `plan-trip`, `find-cheapest-dates`, `compare-hotels`, `where-should-i-go` |
 | **Resources** | Airport codes (50 major hubs), flight/hotel usage guides, price-watch subscriptions |
 | **Tool description orchestration** | `find_trip_window` instructs the LLM to fetch calendar data first, then pass busy intervals in — works on every MCP client. See [docs/MCP-ORCHESTRATION.md](docs/MCP-ORCHESTRATION.md) |
@@ -729,7 +729,7 @@ The AI uses these to give you actionable recommendations: "Book here: [link]". N
 | **Binary** | Single static ~15MB for API-first flows. Optional protected-provider fallbacks may use local browser/python tooling. |
 | **Data** | Real-time from Google Flights (+ Kiwi, Ryanair, Wizz Air; Transavia/Skiplagged/Travelpayouts opt-in) + 6 hotel sources (Google Hotels, Trivago, Airbnb, Booking.com, Hostelworld, HomeToGo) + 20 ground providers (FlixBus, RegioJet, Eurostar, DB, ÖBB, NS, VR, SNCF, Trainline, Transitous, Renfe, European Sleeper, Snälltåget, Tallink, Viking Line, Eckerö Line, Finnlines, Stena Line, DFDS, Ferryhopper) + free destination/enrichment APIs (weather, air quality, sun times, bike-share, holidays, currency) |
 | **Auth** | No personal API keys required. Two providers (NS, Digitransit/VR) use public keys embedded in the binary. Optional browser/cookie fallbacks are available for protected providers when explicitly enabled. |
-| **MCP** | Full v2025-11-25 — 1 smart MCP tool, 65 compatibility aliases (incl. 4 profile aliases, 3 price watch aliases, provider health, award sweet-spot scanning), 7 prompts, resources, structured content, progress notifications, resource subscriptions, tool description orchestration |
+| **MCP** | Full v2025-11-25 — 1 smart MCP tool, 64 compatibility aliases (incl. 4 profile aliases, 3 price watch aliases, provider health, award sweet-spot scanning), 7 prompts, resources, structured content, progress notifications, resource subscriptions, tool description orchestration |
 | **CLI** | 56 commands (+ 7 watch subcommands) with table/JSON output, color, shell completion |
 | **Booking links** | Every flight and hotel result includes a direct Google booking link |
 | **Travel hacks** | 37 detectors (throwaway, hidden-city, positioning, ferry, multi-modal, stopover, date-flex, error fare, back-to-back, rail competition, and more) |
@@ -761,7 +761,7 @@ trvl is part of a suite of MCP tools:
 | Tool | Description |
 |------|-------------|
 | [mcp-gateway](https://github.com/MikkoParkkola/mcp-gateway) | Universal MCP gateway — compact 12-15 tool surface replaces 100+ registrations |
-| **[trvl](https://github.com/MikkoParkkola/trvl)** | **AI travel agent — 1 smart MCP tool plus 65 compatibility aliases for flights, hotels, rental cars, ground transport** |
+| **[trvl](https://github.com/MikkoParkkola/trvl)** | **AI travel agent — 1 smart MCP tool plus 64 compatibility aliases for flights, hotels, rental cars, ground transport** |
 | [nab](https://github.com/MikkoParkkola/nab) | Web content extraction — fetch any URL with cookies + anti-bot bypass |
 | [axterminator](https://github.com/MikkoParkkola/axterminator) | macOS GUI automation — 35 MCP tools via Accessibility API |
 
