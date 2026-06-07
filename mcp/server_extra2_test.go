@@ -180,7 +180,6 @@ func TestToolAnnotations(t *testing.T) {
 		"build_profile":           true,
 		"add_booking":             true,
 		"watch_price":             true,
-		"check_watches":           true,
 		"watch_opportunities":     true,
 		"create_trip":             true,
 		"add_trip_leg":            true,
@@ -193,7 +192,6 @@ func TestToolAnnotations(t *testing.T) {
 		"watch_room_availability": true,
 		"add_booking":             true,
 		"watch_price":             true,
-		"check_watches":           true,
 		"watch_opportunities":     true,
 		// find_interactive can trigger elicitation and sampling, whose replies
 		// are not reproducible across calls — flag it non-idempotent.

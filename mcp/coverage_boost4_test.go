@@ -288,66 +288,6 @@ func TestHandleListWatches_WithEntries(t *testing.T) {
 }
 
 // ============================================================
-// handleCheckWatches — empty watches path
-// ============================================================
-
-func TestHandleCheckWatches_Empty(t *testing.T) {
-	if os.Getenv("TRVL_TEST_LIVE_INTEGRATIONS") != "1" {
-		t.Skip("hits live external APIs; set TRVL_TEST_LIVE_INTEGRATIONS=1 to run. Tracked in #45")
-	}
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-	t.Setenv("USERPROFILE", tmp)
-
-	content, structured, err := handleCheckWatches(context.Background(), nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(content) == 0 {
-		t.Fatal("expected content blocks")
-	}
-	if !containsString(content[0].Text, "No active watches") {
-		t.Errorf("expected empty message, got: %s", content[0].Text)
-	}
-	if structured == nil {
-		t.Fatal("expected structured output")
-	}
-}
-
-func TestHandleCheckWatches_WithWatches(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-	t.Setenv("USERPROFILE", tmp)
-
-	// Add a flight watch.
-	_, _, err := handleWatchPrice(context.Background(), map[string]any{
-		"type":         "flight",
-		"target_price": 300.0,
-		"origin":       "HEL",
-		"destination":  "CDG",
-		"date":         "2099-06-01",
-	}, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("setup watch: %v", err)
-	}
-
-	content, structured, err := handleCheckWatches(context.Background(), nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(content) == 0 {
-		t.Fatal("expected content blocks")
-	}
-	// Should mention checked count.
-	if !containsString(content[0].Text, "Checked") {
-		t.Errorf("expected 'Checked' in response, got: %s", content[0].Text)
-	}
-	if structured == nil {
-		t.Fatal("expected structured output")
-	}
-}
-
-// ============================================================
 // watchRoute — all type branches
 // ============================================================
 
@@ -453,31 +393,6 @@ func TestWatchRoute_Default(t *testing.T) {
 	route := watchRoute(w)
 	if route != "Paris" {
 		t.Errorf("watchRoute(unknown) = %q, want Paris", route)
-	}
-}
-
-// ============================================================
-// mcpPriceChecker.CheckPrice
-// ============================================================
-
-func TestMCPPriceChecker_ReturnsZero(t *testing.T) {
-	t.Parallel()
-	c := &mcpPriceChecker{}
-	price, currency, date, err := c.CheckPrice(context.Background(), watch.Watch{
-		Type:     "flight",
-		Currency: "EUR",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if price != 0 {
-		t.Errorf("price = %f, want 0", price)
-	}
-	if currency != "EUR" {
-		t.Errorf("currency = %q, want EUR", currency)
-	}
-	if date != "" {
-		t.Errorf("date = %q, want empty", date)
 	}
 }
 

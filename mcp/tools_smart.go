@@ -311,8 +311,6 @@ func watchActionTarget(token, action string) string {
 	switch {
 	case containsAny(action, "create", "add", "set", "track") || containsAny(token, "create", "add", "set", "track"):
 		return "watch_price"
-	case containsAny(action, "check", "refresh", "run") || containsAny(token, "check", "refresh", "run"):
-		return "check_watches"
 	case containsAny(action, "opportunity", "opportunities") || containsAny(token, "opportunity", "opportunities"):
 		return "watch_opportunities"
 	default:

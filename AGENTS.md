@@ -490,7 +490,7 @@ Searches 20+ providers in parallel including FlixBus, RegioJet, Eurostar, DB, NS
 ```json
 {"type": "flight", "origin": "HEL", "destination": "BCN", "date": "2026-07-01", "target_price": 89, "currency": "EUR"}
 ```
-Stores watch in `~/.trvl/watches.json`. Use `check_watches` to re-check prices, `list_watches` to see all active watches. Hotel watches can set `last_minute: true` and `last_minute_drop_pct` (default 25) to alert when sub-48h availability drops materially below the last seen price.
+Stores watch in `~/.trvl/watches.json`. Use `list_watches` to see all active watches. Hotel watches can set `last_minute: true` and `last_minute_drop_pct` (default 25) to alert when sub-48h availability drops materially below the last seen price.
 
 ### provider_health — Provider status dashboard
 ```json

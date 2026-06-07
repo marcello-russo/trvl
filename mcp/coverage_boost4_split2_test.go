@@ -430,17 +430,6 @@ func TestListWatchesTool_Definition(t *testing.T) {
 	}
 }
 
-func TestCheckWatchesTool_Definition(t *testing.T) {
-	t.Parallel()
-	tool := checkWatchesTool()
-	if tool.Name != "check_watches" {
-		t.Errorf("Name = %q, want check_watches", tool.Name)
-	}
-	if !tool.Annotations.OpenWorldHint {
-		t.Error("OpenWorldHint should be true (makes live requests)")
-	}
-}
-
 func TestProviderHealthTool_Definition(t *testing.T) {
 	t.Parallel()
 	tool := providerHealthTool()

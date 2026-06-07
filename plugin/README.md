@@ -49,7 +49,7 @@ reports the itinerary with travel hack savings.
 ```
 
 The command routes to `trvl-price-watch`, creates a durable `watch_price`
-record, and returns a /loop-compatible `check_watches` cadence. For hotels it
+record, and returns a /loop-compatible watch cadence. For hotels it
 can also use `watch_room_availability`; for rolling inspiration windows it uses
 `watch_opportunities`.
 
@@ -104,7 +104,7 @@ Trips and calendar:
 `export_ics`, `trip_workspace`.
 
 Watches and opportunities:
-`watch_price`, `list_watches`, `check_watches`, `watch_opportunities`,
+`watch_price`, `list_watches`, `watch_opportunities`,
 `list_opportunity_watches`.
 
 Providers:

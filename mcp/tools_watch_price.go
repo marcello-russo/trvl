@@ -17,7 +17,7 @@ func watchPriceTool() ToolDef {
 		Title: "Watch Price",
 		Description: "Create a price watch for a flight route or hotel stay. " +
 			"The watch is stored in ~/.trvl/watches.json and tracks whether the price drops " +
-			"below your target. Call check_watches later to re-check all active watches. " +
+			"below your target. Use list_watches to view all active watches. " +
 			"For flights: provide origin, destination, and date. " +
 			"For hotels: provide location, check_in, and check_out. " +
 			"Set target_price to the maximum price you are willing to pay.",
@@ -180,8 +180,6 @@ func handleWatchPrice(_ context.Context, args map[string]any, _ ElicitFunc, _ Sa
 			summary += fmt.Sprintf(" Last-minute mode enabled at %.0f%% below last seen price.", w.LastMinuteDropPct)
 		}
 	}
-	summary += " Use check_watches to re-check all active watches."
-
 	content, err := buildAnnotatedContentBlocks(summary, resp)
 	if err != nil {
 		return nil, nil, err
@@ -301,7 +299,7 @@ func handleListWatches(_ context.Context, _ map[string]any, _ ElicitFunc, _ Samp
 			}
 			summary += line + "\n"
 		}
-		summary += "Use check_watches to re-check prices now."
+		summary += "Use watch_price to create new watches."
 	}
 
 	content, err := buildAnnotatedContentBlocks(summary, resp)
@@ -309,193 +307,6 @@ func handleListWatches(_ context.Context, _ map[string]any, _ ElicitFunc, _ Samp
 		return nil, nil, err
 	}
 	return content, resp, nil
-}
-
-// --- check_watches tool ---
-
-func checkWatchesTool() ToolDef {
-	return ToolDef{
-		Name:  "check_watches",
-		Title: "Check Price Watches",
-		Description: "Re-check all active price watches against current live prices. " +
-			"For each watch, fetches the current best price and compares it to the target. " +
-			"Returns which watches have dropped below their target price. " +
-			"Note: this makes live network requests and may take 10-30 seconds for many watches.",
-		InputSchema: InputSchema{
-			Type:       "object",
-			Properties: map[string]Property{},
-			Required:   []string{},
-		},
-		OutputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"checked": schemaInt(),
-				"triggered": schemaArray(map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"id":            schemaString(),
-						"route":         schemaString(),
-						"target_price":  schemaNum(),
-						"current_price": schemaNum(),
-						"price_drop":    schemaNum(),
-						"currency":      schemaString(),
-					},
-				}),
-				"results": schemaArray(map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"id":            schemaString(),
-						"route":         schemaString(),
-						"current_price": schemaNum(),
-						"prev_price":    schemaNum(),
-						"price_drop":    schemaNum(),
-						"below_goal":    schemaBool(),
-						"currency":      schemaString(),
-						"error":         schemaString(),
-					},
-				}),
-			},
-		},
-		Annotations: &ToolAnnotations{
-			Title:          "Check Price Watches",
-			ReadOnlyHint:   false,
-			IdempotentHint: false,
-			OpenWorldHint:  true,
-		},
-	}
-}
-
-func handleCheckWatches(ctx context.Context, _ map[string]any, _ ElicitFunc, _ SamplingFunc, _ ProgressFunc) ([]ContentBlock, interface{}, error) {
-	store, err := watch.DefaultStore()
-	if err != nil {
-		return nil, nil, fmt.Errorf("open watch store: %w", err)
-	}
-	if err := store.Load(); err != nil {
-		return nil, nil, fmt.Errorf("load watch store: %w", err)
-	}
-
-	watches := store.List()
-	if len(watches) == 0 {
-		type emptyResponse struct {
-			Checked   int `json:"checked"`
-			Triggered int `json:"triggered_count"`
-		}
-		resp := emptyResponse{Checked: 0, Triggered: 0}
-		content, err := buildAnnotatedContentBlocks("No active watches to check. Use watch_price to create one.", resp)
-		if err != nil {
-			return nil, nil, err
-		}
-		return content, resp, nil
-	}
-
-	// Build a price checker that uses live flight/hotel search.
-	checker := &mcpPriceChecker{}
-	results := watch.CheckAll(ctx, store, checker)
-
-	type resultItem struct {
-		ID           string  `json:"id"`
-		Route        string  `json:"route"`
-		CurrentPrice float64 `json:"current_price,omitempty"`
-		PrevPrice    float64 `json:"prev_price,omitempty"`
-		PriceDrop    float64 `json:"price_drop,omitempty"`
-		BelowGoal    bool    `json:"below_goal"`
-		Currency     string  `json:"currency,omitempty"`
-		Error        string  `json:"error,omitempty"`
-	}
-
-	type triggeredItem struct {
-		ID           string  `json:"id"`
-		Route        string  `json:"route"`
-		TargetPrice  float64 `json:"target_price"`
-		CurrentPrice float64 `json:"current_price"`
-		PriceDrop    float64 `json:"price_drop,omitempty"`
-		Currency     string  `json:"currency"`
-	}
-
-	var triggered []triggeredItem
-	items := make([]resultItem, 0, len(results))
-	for _, r := range results {
-		item := resultItem{
-			ID:           r.Watch.ID,
-			Route:        watchRoute(r.Watch),
-			CurrentPrice: r.NewPrice,
-			PrevPrice:    r.PrevPrice,
-			PriceDrop:    r.PriceDrop,
-			BelowGoal:    r.BelowGoal,
-			Currency:     r.Currency,
-		}
-		if r.Error != nil {
-			item.Error = r.Error.Error()
-		}
-		items = append(items, item)
-
-		if r.BelowGoal {
-			triggered = append(triggered, triggeredItem{
-				ID:           r.Watch.ID,
-				Route:        watchRoute(r.Watch),
-				TargetPrice:  r.Watch.BelowPrice,
-				CurrentPrice: r.NewPrice,
-				PriceDrop:    r.PriceDrop,
-				Currency:     r.Currency,
-			})
-		}
-	}
-
-	type checkResponse struct {
-		Checked   int             `json:"checked"`
-		Triggered []triggeredItem `json:"triggered"`
-		Results   []resultItem    `json:"results"`
-	}
-	resp := checkResponse{
-		Checked:   len(results),
-		Triggered: triggered,
-		Results:   items,
-	}
-	if resp.Triggered == nil {
-		resp.Triggered = []triggeredItem{}
-	}
-
-	var lines []string
-	lines = append(lines, fmt.Sprintf("Checked %d watch(es).", len(results)))
-	if len(triggered) > 0 {
-		lines = append(lines, fmt.Sprintf("%d watch(es) triggered (price below target):", len(triggered)))
-		for _, t := range triggered {
-			lines = append(lines, fmt.Sprintf("  [%s] %s: %.0f %s (target %.0f, drop %.0f)",
-				t.ID, t.Route, t.CurrentPrice, t.Currency, t.TargetPrice, -t.PriceDrop))
-		}
-	} else {
-		lines = append(lines, "No watches triggered yet.")
-	}
-	for _, item := range items {
-		if item.Error != "" {
-			lines = append(lines, fmt.Sprintf("  [%s] %s: error — %s", item.ID, item.Route, item.Error))
-		}
-	}
-
-	content, err := buildAnnotatedContentBlocks(strings.Join(lines, "\n"), resp)
-	if err != nil {
-		return nil, nil, err
-	}
-	return content, resp, nil
-}
-
-// mcpPriceChecker implements watch.PriceChecker using live flight/hotel searches.
-// It is intentionally kept simple: it returns 0 price (no result) for hotel
-// watches since the hotel search requires a city resolver and external APIs that
-// are not easily callable without the full MCP handler context. Flight watches
-// are also non-trivial to re-invoke here; surfacing the mechanism without a
-// runtime import cycle is deferred to the daemon path. The check_watches tool
-// therefore records an informational result rather than a live price when no
-// price source is available.
-type mcpPriceChecker struct{}
-
-func (m *mcpPriceChecker) CheckPrice(_ context.Context, w watch.Watch) (float64, string, string, error) {
-	// Live re-checking requires the full scraper stack (protobuf encoding,
-	// cookie jars, rate-limit backoff). The check_watches MCP tool surfaces
-	// the watch state and history; actual live re-checking is done by the
-	// background daemon (trvl watch --daemon). Return 0 to signal "no new
-	// data" so the store is not mutated and the existing last_price is shown.
-	return 0, w.Currency, "", nil
 }
 
 // --- helpers ---

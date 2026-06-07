@@ -78,7 +78,6 @@ func registerTools(s *Server) {
 		onboardProfileTool(),
 		watchPriceTool(),
 		listWatchesTool(),
-		checkWatchesTool(),
 		watchOpportunitiesTool(),
 		listOpportunityWatchesTool(),
 		searchHiddenCityTool(),
@@ -155,7 +154,6 @@ func registerTools(s *Server) {
 	s.handlers["onboard_profile"] = s.wrapHandler("onboard_profile", handleOnboardProfile)
 	s.handlers["watch_price"] = s.wrapHandler("watch_price", handleWatchPrice)
 	s.handlers["list_watches"] = s.wrapHandler("list_watches", handleListWatches)
-	s.handlers["check_watches"] = s.wrapHandler("check_watches", handleCheckWatches)
 	s.handlers["watch_opportunities"] = s.wrapHandler("watch_opportunities", handleWatchOpportunities)
 	s.handlers["list_opportunity_watches"] = s.wrapHandler("list_opportunity_watches", handleListOpportunityWatches)
 	s.handlers["search_hidden_city"] = s.wrapHandler("search_hidden_city", handleSearchHiddenCity)

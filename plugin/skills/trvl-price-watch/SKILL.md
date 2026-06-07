@@ -12,7 +12,7 @@ allowed-tools:
   - mcp__trvl__watch_room_availability
   - mcp__trvl__watch_opportunities
   - mcp__trvl__list_watches
-  - mcp__trvl__check_watches
+  - mcp__trvl__list_watches
   - mcp__trvl__list_opportunity_watches
   - mcp__gateway__gateway_invoke
 ---
@@ -43,8 +43,8 @@ compatibility alias, then collect only the missing watch parameters:
 4. Read back the active watch with `action="list"` or
    `intent="list_opportunity_watches"` so the user sees the saved threshold.
 5. Give a /loop-compatible recurrence instruction:
-   "Run `check_watches` daily; if a threshold is hit, summarize the delta and
-   show the booking URL."
+"Use `list_watches` to review active watches; if a threshold is hit, summarize the delta and
+    show the booking URL."
 
 ## Output
 
@@ -53,8 +53,7 @@ Return:
 - Watch ID and type.
 - Watched route/property/window.
 - Target threshold and currency.
-- First check cadence and the exact recurring `check_watches` or opportunity
-  watch command pattern.
+- Watch interval and the exact command to re-check prices (user re-runs search with saved parameters).
 - Any missing data that prevents a durable watch.
 
 Do not create or update saved preferences unless the user explicitly confirms

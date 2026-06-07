@@ -199,7 +199,7 @@ The full compatibility surface is below.
 |---|---|
 | `watch_price` | Create a price alert with target threshold (flight / hotel) |
 | `list_watches` | Show all active price watches with sparkline |
-| `check_watches` | Re-check all watches for drops; can webhook on alert |
+| `list_watches` | List all active price watches with route, target, and history |
 | `watch_opportunities` | Rolling-window opportunity scanner (favourite destinations resolver) |
 | `list_opportunity_watches` | List active opportunity watches |
 
@@ -487,7 +487,7 @@ Every strategy below maps to a concrete trvl tool call or parameter. **Strategie
 | Error-fare flag | `detect_travel_hacks: error_fare` (haversine route-distance floor < 50%) |
 | Flash sale | `detect_travel_hacks: flash_sale` |
 | Free RSS deal feeds | `search_deals` (Secret Flying, Fly4Free, Holiday Pirates, TPG) — filter by `origins` |
-| Price watch with target | `watch_price` + `check_watches` (sparkline history, webhook on drop) |
+| Price watch with target | `watch_price` + `list_watches` (sparkline history) |
 | Opportunity scanner | `watch_opportunities` + `list_opportunity_watches` (favourite-destinations rolling window) |
 
 ### F · Carry-on / bag math
